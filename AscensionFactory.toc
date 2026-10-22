@@ -1,0 +1,36 @@
+## Interface: 120105
+## Title: Ascension Factory
+## Notes: A library of UI components for creating addons.
+## Author: Aka-DoctorCode
+## Category: Utility
+## Version: V01
+## IconTexture: Interface\AddOns\AscensionFactory\Media\AkaDoctorCode.png
+## RequiredDeps: AscensionSuit
+
+Core/Core.lua
+Core/Context.lua
+Core/FrameworkPool.lua
+Core/LayoutModel.lua
+UX/ClickOutside.lua
+UX/Hoverable.lua
+UX/Closable.lua
+UX/Draggable.lua
+UX/Resizable.lua
+Components/01Frame.lua
+Components/02TabbedInterface.lua
+Components/03TwoColumn.lua
+Components/04Text.lua
+Components/05Button.lua
+Components/06Toggle.lua
+Components/07Checkbox.lua
+Components/08InputField.lua
+Components/09Slider.lua
+Components/10Stepper.lua
+UX/Scrollable.lua
+Components/11Tooltip.lua
+Components/12Dropdown.lua
+Components/13ContextMenu.lua
+Components/14Toast.lua
+Components/15ColorPicker.lua
+Integration/BlizzardOptions.lua
+ExampleUI.lua
