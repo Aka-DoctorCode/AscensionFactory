@@ -84,6 +84,7 @@ function Context:createDropdown(options)
     })
     dropdown.uiContext = self
     dropdown.fluidWidth = isFluid
+    dropdown.fluidRightOffset = options.fluidRightOffset or options.rightOffset
 
     if isFluid then
         local point = options.point or options.anchorPoint or "TOPLEFT"

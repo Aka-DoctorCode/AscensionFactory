@@ -29,7 +29,13 @@ lib.LayoutModel.__index = lib.LayoutModel
 -- parent: The main WoW UI frame that all layout elements will be attached to.
 -------------------------------------------------------------------------------
 
-function lib.LayoutModel:new(uiContext, parent)
+function lib.LayoutModel:new(uiContext, parent, options)
+    if type(options) == "number" then
+        options = { startY = options }
+    else
+        options = options or {}
+    end
+
     local layoutInstance = {
         uiContext = uiContext or self.uiContext,
         parent = parent,
@@ -42,7 +48,7 @@ function lib.LayoutModel:new(uiContext, parent)
         -- Forced width state for elements
         currentWidth = nil,
         -- Engine default layout settings
-        defaultVerticalGap = 10,
+        defaultVerticalGap = options.verticalGap or 10,
         -- Vertical space for the next element
         nextVerticalGap = nil,
         -- Horizontal indent for the next element
@@ -50,27 +56,55 @@ function lib.LayoutModel:new(uiContext, parent)
         -- Responsive capability engine
         responsiveElements = {},
         responsiveMode = "normal", -- "normal" | "compact"
-        responsiveThreshold = 480,
+        responsiveThreshold = options.threshold or 480,
         isResponsive = false,
-        onModeChange = nil
+        onModeChange = options.onModeChange,
+        columnGroup = nil,
+        columnContainer = nil,
+        tallestColumnBottom = nil,
+        isStackedColumns = false
     }
-    return setmetatable(layoutInstance, lib.LayoutModel)
+    setmetatable(layoutInstance, lib.LayoutModel)
+
+    -- Auto-enable responsive observation by default unless explicitly disabled
+    if options.responsive ~= false and parent and parent.HookScript then
+        layoutInstance:enableResponsive(options)
+    end
+
+    return layoutInstance
 end
 
 -- Resets the layout engine state. Used to recycle a LayoutModel instead of creating a new one (saves memory).
-function lib.LayoutModel:reset(parent)
+function lib.LayoutModel:reset(parent, options)
+    if type(options) == "number" then
+        options = { startY = options }
+    else
+        options = options or {}
+    end
+
     self.parent = parent
     self.currentParent = parent
     self.lastAddedElement = nil
     self.columnCurrentX = 0
     self.currentWidth = nil
+    self.defaultVerticalGap = options.verticalGap or 10
     self.nextVerticalGap = nil
     self.nextXOffset = nil
     self.responsiveElements = {}
     self.responsiveMode = "normal"
-    self.responsiveThreshold = 480
+    self.responsiveThreshold = options.threshold or 480
     self.isResponsive = false
-    self.onModeChange = nil
+    self.onModeChange = options.onModeChange
+    self.columnGroup = nil
+    self.columnContainer = nil
+    self.tallestColumnBottom = nil
+    self.isStackedColumns = false
+
+    -- Auto-enable responsive observation by default unless explicitly disabled
+    if options.responsive ~= false and parent and parent.HookScript then
+        self:enableResponsive(options)
+    end
+
     return self
 end
 
@@ -119,7 +153,7 @@ function lib.LayoutModel:anchorElement(element)
     -- If element is marked for fluid width, adapt its width dynamically to available space
     if element.fluidWidth then
         local rightPad = math.abs(element.fluidRightOffset or 10)
-        local avail = self:getAvailableWidth(xOffset + rightPad)
+        local avail = self:getAvailableWidth(xOffset + rightPad, element)
         if avail > 0 and element.SetWidth then
             element:SetWidth(avail)
         end
@@ -127,7 +161,7 @@ function lib.LayoutModel:anchorElement(element)
             element:updateLayout(avail)
         end
         self:registerResponsiveElement(element, function(elem, mode, w, h)
-            local currentAvail = self:getAvailableWidth(xOffset + rightPad)
+            local currentAvail = self:getAvailableWidth(xOffset + rightPad, elem)
             if currentAvail > 0 and elem.SetWidth then
                 elem:SetWidth(currentAvail)
             end
@@ -135,6 +169,14 @@ function lib.LayoutModel:anchorElement(element)
                 elem:updateLayout(currentAvail)
             end
         end)
+    end
+
+    -- Track element inside active column if applicable
+    if self.currentColData then
+        table.insert(self.currentColData.elements, element)
+        self.currentColData.lastElement = element
+        local h = (element.GetHeight and element:GetHeight()) or 24
+        self.currentColData.totalEstimatedHeight = (self.currentColData.totalEstimatedHeight or 0) + h + verticalGap
     end
 
     -- Update tracker for the next element
@@ -159,11 +201,11 @@ function lib.LayoutModel:enableResponsive(options)
     if not targetFrame or not targetFrame.HookScript then return end
 
     local isDebouncing = false
-    local function evaluateResponsive()
+    local function evaluateResponsive(isInitial)
         local width = targetFrame:GetWidth() or 0
         local height = targetFrame:GetHeight() or 0
         local newMode = (width < self.responsiveThreshold) and "compact" or "normal"
-        if newMode ~= self.responsiveMode or options.alwaysNotify then
+        if isInitial or newMode ~= self.responsiveMode or options.alwaysNotify then
             self:notifyResponsive(newMode, width, height)
         end
     end
@@ -174,14 +216,14 @@ function lib.LayoutModel:enableResponsive(options)
             isDebouncing = true
             C_Timer.After(0.05, function()
                 isDebouncing = false
-                evaluateResponsive()
+                evaluateResponsive(false)
             end)
         else
-            evaluateResponsive()
+            evaluateResponsive(false)
         end
     end)
 
-    evaluateResponsive()
+    evaluateResponsive(true)
 end
 
 --- Broadcasts a responsive mode transition to all registered responsive elements.
@@ -199,6 +241,35 @@ function lib.LayoutModel:notifyResponsive(newMode, width, height)
     end
     if self.onModeChange then
         self.onModeChange(self, newMode, width, height)
+    end
+    self:updateScrollRangeIfAvailable()
+end
+
+--- Recursively attempts to update the scroll range if container is within a scrollable viewport.
+function lib.LayoutModel:updateScrollRangeIfAvailable()
+    local target = self.currentParent
+    if target and target.updateScrollRange then
+        target:updateScrollRange()
+        return
+    end
+    target = self.parent
+    if target and target.updateScrollRange then
+        target:updateScrollRange()
+        return
+    end
+    if target and target.GetParent then
+        local p = target:GetParent()
+        if p and p.updateScrollRange then
+            p:updateScrollRange()
+            return
+        end
+        if p and p.GetParent then
+            local pp = p:GetParent()
+            if pp and pp.updateScrollRange then
+                pp:updateScrollRange()
+                return
+            end
+        end
     end
 end
 
@@ -222,17 +293,23 @@ end
 
 --- Computes the usable width inside the current active container frame.
 --- @param padding number|nil Optional inner margin to subtract.
+--- @param element table|nil Optional UI element to resolve parent frame container dynamically.
 --- @return number availableWidth Remaining width in pixels.
-function lib.LayoutModel:getAvailableWidth(padding)
+function lib.LayoutModel:getAvailableWidth(padding, element)
     padding = padding or 0
     local w = self.currentWidth
     if not w or w <= 0 then
-        if self.currentParent and self.currentParent.GetWidth then
-            w = self.currentParent:GetWidth() or 0
-        elseif self.parent and self.parent.GetWidth then
-            w = self.parent:GetWidth() or 0
-        else
-            w = 0
+        if element and element.GetParent and element:GetParent() and element:GetParent().GetWidth then
+            w = element:GetParent():GetWidth() or 0
+        end
+        if not w or w <= 0 then
+            if self.currentParent and self.currentParent.GetWidth then
+                w = self.currentParent:GetWidth() or 0
+            elseif self.parent and self.parent.GetWidth then
+                w = self.parent:GetWidth() or 0
+            else
+                w = 0
+            end
         end
     end
     return math.max(0, w - padding)
@@ -275,12 +352,12 @@ function lib.LayoutModel:header(elementID, text, options)
     self:anchorElement(headerElement)
     if opts.wordWrap or opts.elasticWidth or opts.rightOffset then
         local rightPad = math.abs(opts.rightOffset or 10)
-        local avail = self:getAvailableWidth(rightPad)
+        local avail = self:getAvailableWidth(rightPad, headerElement)
         if avail > 0 and headerElement.SetWidth then
             headerElement:SetWidth(avail)
         end
         self:registerResponsiveElement(headerElement, function(elem, mode, w, h)
-            local currentAvail = self:getAvailableWidth(rightPad)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
             if currentAvail > 0 and elem.SetWidth then
                 elem:SetWidth(currentAvail)
             end
@@ -308,12 +385,12 @@ function lib.LayoutModel:label(elementID, text, options)
     self:anchorElement(labelElement)
     if opts.wordWrap or opts.elasticWidth or opts.rightOffset then
         local rightPad = math.abs(opts.rightOffset or 10)
-        local avail = self:getAvailableWidth(rightPad)
+        local avail = self:getAvailableWidth(rightPad, labelElement)
         if avail > 0 and labelElement.SetWidth then
             labelElement:SetWidth(avail)
         end
         self:registerResponsiveElement(labelElement, function(elem, mode, w, h)
-            local currentAvail = self:getAvailableWidth(rightPad)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
             if currentAvail > 0 and elem.SetWidth then
                 elem:SetWidth(currentAvail)
             end
@@ -335,12 +412,12 @@ function lib.LayoutModel:paragraph(elementID, text, rightOffset)
 
     self:anchorElement(paragraphElement)
     local rightPad = math.abs(rightOffset or 10)
-    local avail = self:getAvailableWidth(rightPad)
+    local avail = self:getAvailableWidth(rightPad, paragraphElement)
     if avail > 0 and paragraphElement.SetWidth then
         paragraphElement:SetWidth(avail)
     end
     self:registerResponsiveElement(paragraphElement, function(elem, mode, w, h)
-        local currentAvail = self:getAvailableWidth(rightPad)
+        local currentAvail = self:getAvailableWidth(rightPad, elem)
         if currentAvail > 0 and elem.SetWidth then
             elem:SetWidth(currentAvail)
         end
@@ -349,25 +426,49 @@ function lib.LayoutModel:paragraph(elementID, text, rightOffset)
 end
 
 -- Creates a clickable button.
-function lib.LayoutModel:button(elementID, text, tooltip, width, height, onClick)
-    if tooltip ~= nil and type(tooltip) ~= "string" then
-        onClick, height, width, tooltip = height, width, tooltip, nil
-    end
-
+-- Supports positional signature: (elementID, text, tooltip, width, height, onClick)
+-- and options table: (elementID, optionsTable)
+function lib.LayoutModel:button(elementID, textOrOptions, tooltip, width, height, onClick)
     if not self.uiContext.createButton then return nil end
 
-    local buttonElement = self.uiContext:createButton({
-        parent = self.currentParent,
-        name = elementID,
-        text = text,
-        tooltip = tooltip,
-        width = width,
-        height = height,
-        onClick = onClick
-    })
+    local opts = {}
+    if type(textOrOptions) == "table" then
+        for k, v in pairs(textOrOptions) do opts[k] = v end
+    else
+        if tooltip ~= nil and type(tooltip) ~= "string" and type(tooltip) ~= "table" then
+            onClick, height, width, tooltip = height, width, tooltip, nil
+        end
+        opts.text = textOrOptions
+        opts.tooltip = tooltip
+        opts.width = width
+        opts.height = height
+        opts.onClick = onClick
+    end
 
+    opts.parent = self.currentParent
+    opts.name = elementID
+
+    local isFluid = opts.fluidWidth or opts.fluid or (self.isResponsive and not opts.width and opts.fluidWidth ~= false)
+    if isFluid then
+        opts.fluidWidth = true
+        opts.width = opts.width or self:getAvailableWidth(opts.rightOffset or 10)
+        if opts.width <= 0 then opts.width = 100 end
+    end
+
+    local buttonElement = self.uiContext:createButton(opts)
     self.nextVerticalGap = self.nextVerticalGap or 0
     self:anchorElement(buttonElement)
+
+    if isFluid and buttonElement then
+        local rightPad = math.abs(opts.fluidRightOffset or opts.rightOffset or 10)
+        self:registerResponsiveElement(buttonElement, function(elem, mode, w, h)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
+            if currentAvail > 0 and elem.SetWidth then
+                elem:SetWidth(currentAvail)
+            end
+        end)
+    end
+
     return buttonElement
 end
 
@@ -389,16 +490,22 @@ function lib.LayoutModel:toggle(elementID, getterOrOptions, setter, width, heigh
     opts.parent = self.currentParent
     opts.name = elementID
 
+    local isFluid = opts.flexRow or (self.isResponsive and opts.width == nil and opts.flexRow ~= false)
+    if isFluid then
+        opts.flexRow = true
+    end
+
     local toggleElement = self.uiContext:createToggle(opts)
     self:anchorElement(toggleElement)
-    if opts.flexRow and toggleElement then
+
+    if isFluid and toggleElement then
         local rightPad = math.abs(opts.rightOffset or 10)
-        local avail = self:getAvailableWidth(rightPad)
+        local avail = self:getAvailableWidth(rightPad, toggleElement)
         if avail > 0 and toggleElement.SetWidth then
             toggleElement:SetWidth(avail)
         end
         self:registerResponsiveElement(toggleElement, function(elem, mode, w, h)
-            local currentAvail = self:getAvailableWidth(rightPad)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
             if currentAvail > 0 and elem.SetWidth then
                 elem:SetWidth(currentAvail)
             end
@@ -425,16 +532,22 @@ function lib.LayoutModel:checkbox(elementID, textOrOptions, getter, setter, size
     opts.parent = self.currentParent
     opts.name = elementID
 
+    local isFluid = opts.flexRow or (self.isResponsive and opts.width == nil and opts.flexRow ~= false)
+    if isFluid then
+        opts.flexRow = true
+    end
+
     local checkboxElement = self.uiContext:createCheckbox(opts)
     self:anchorElement(checkboxElement)
-    if opts.flexRow and checkboxElement then
+
+    if isFluid and checkboxElement then
         local rightPad = math.abs(opts.rightOffset or 10)
-        local avail = self:getAvailableWidth(rightPad)
+        local avail = self:getAvailableWidth(rightPad, checkboxElement)
         if avail > 0 and checkboxElement.SetWidth then
             checkboxElement:SetWidth(avail)
         end
         self:registerResponsiveElement(checkboxElement, function(elem, mode, w, h)
-            local currentAvail = self:getAvailableWidth(rightPad)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
             if currentAvail > 0 and elem.SetWidth then
                 elem:SetWidth(currentAvail)
             end
@@ -467,9 +580,10 @@ function lib.LayoutModel:slider(elementID, textOrOptions, minValue, maxValue, st
     opts.name = elementID
     opts.orientation = opts.orientation or "HORIZONTAL"
 
-    if opts.fluidWidth then
+    local isFluid = opts.fluidWidth or opts.fluid or (self.isResponsive and not opts.length and not opts.width and opts.fluidWidth ~= false)
+    if isFluid then
         opts.fluidWidth = true
-        opts.length = opts.length or opts.width or self:getAvailableWidth(16)
+        opts.length = opts.length or opts.width or self:getAvailableWidth(opts.rightOffset or 16)
         if opts.length <= 0 then opts.length = 200 end
     else
         opts.length = opts.length or opts.width or self.currentWidth or 200
@@ -482,6 +596,17 @@ function lib.LayoutModel:slider(elementID, textOrOptions, minValue, maxValue, st
 
     local sliderElement = self.uiContext:createSlider(opts)
     self:anchorElement(sliderElement)
+
+    if isFluid and sliderElement then
+        local rightPad = math.abs(opts.rightOffset or 16)
+        self:registerResponsiveElement(sliderElement, function(elem, mode, w, h)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
+            if currentAvail > 0 and elem.SetWidth then
+                elem:SetWidth(currentAvail)
+            end
+        end)
+    end
+
     return sliderElement
 end
 
@@ -508,9 +633,10 @@ function lib.LayoutModel:stepper(elementID, textOrOptions, minValue, maxValue, s
     opts.parent = self.currentParent
     opts.name = elementID
 
-    if opts.fluidWidth then
+    local isFluid = opts.fluidWidth or opts.fluid or (self.isResponsive and not opts.width and opts.fluidWidth ~= false)
+    if isFluid then
         opts.fluidWidth = true
-        opts.width = opts.width or self:getAvailableWidth(16)
+        opts.width = opts.width or self:getAvailableWidth(opts.rightOffset or 16)
         if opts.width <= 0 then opts.width = 160 end
     else
         opts.width = opts.width or self.currentWidth or 160
@@ -524,6 +650,17 @@ function lib.LayoutModel:stepper(elementID, textOrOptions, minValue, maxValue, s
 
     local stepperElement = self.uiContext:createStepper(opts)
     self:anchorElement(stepperElement)
+
+    if isFluid and stepperElement then
+        local rightPad = math.abs(opts.rightOffset or 16)
+        self:registerResponsiveElement(stepperElement, function(elem, mode, w, h)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
+            if currentAvail > 0 and elem.SetWidth then
+                elem:SetWidth(currentAvail)
+            end
+        end)
+    end
+
     return stepperElement
 end
 
@@ -547,9 +684,10 @@ function lib.LayoutModel:inputField(elementID, textOrOptions, width, height, opt
     opts.parent = self.currentParent
     opts.name = elementID
 
-    if opts.fluidWidth then
+    local isFluid = opts.fluidWidth or opts.fluid or (self.isResponsive and not opts.width and opts.fluidWidth ~= false)
+    if isFluid then
         opts.fluidWidth = true
-        opts.width = opts.width or self:getAvailableWidth(16)
+        opts.width = opts.width or self:getAvailableWidth(opts.rightOffset or 16)
         if opts.width <= 0 then opts.width = 200 end
     else
         opts.width = opts.width or self.currentWidth or 200
@@ -563,6 +701,17 @@ function lib.LayoutModel:inputField(elementID, textOrOptions, width, height, opt
 
     local inputElement = self.uiContext:createInputField(opts)
     self:anchorElement(inputElement)
+
+    if isFluid and inputElement then
+        local rightPad = math.abs(opts.rightOffset or 16)
+        self:registerResponsiveElement(inputElement, function(elem, mode, w, h)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
+            if currentAvail > 0 and elem.SetWidth then
+                elem:SetWidth(currentAvail)
+            end
+        end)
+    end
+
     return inputElement
 end
 lib.LayoutModel.input = lib.LayoutModel.inputField
@@ -588,9 +737,10 @@ function lib.LayoutModel:dropdown(elementID, textOrOptions, optionsList, getter,
     opts.parent = self.currentParent
     opts.name = elementID
 
-    if opts.fluidWidth then
+    local isFluid = opts.fluidWidth or opts.fluid or (self.isResponsive and not opts.width and opts.fluidWidth ~= false)
+    if isFluid then
         opts.fluidWidth = true
-        opts.width = opts.width or self:getAvailableWidth(16)
+        opts.width = opts.width or self:getAvailableWidth(opts.rightOffset or 16)
         if opts.width <= 0 then opts.width = 160 end
     else
         opts.width = opts.width or self.currentWidth or 160
@@ -604,6 +754,17 @@ function lib.LayoutModel:dropdown(elementID, textOrOptions, optionsList, getter,
 
     local dropdownElement = self.uiContext:createDropdown(opts)
     self:anchorElement(dropdownElement)
+
+    if isFluid and dropdownElement then
+        local rightPad = math.abs(opts.rightOffset or 16)
+        self:registerResponsiveElement(dropdownElement, function(elem, mode, w, h)
+            local currentAvail = self:getAvailableWidth(rightPad, elem)
+            if currentAvail > 0 and elem.SetWidth then
+                elem:SetWidth(currentAvail)
+            end
+        end)
+    end
+
     return dropdownElement
 end
 
@@ -684,64 +845,226 @@ end
 -- bottomPadding: Extra space to add at the bottom of the content frame.
 -------------------------------------------------------------------------------
 
--- Begins a columnar layout, allowing side-by-side elements.
-function lib.LayoutModel:beginColumn(xOffset, width)
-    -- If this is the start of a column row, create a transparent container
-    if not self.columnContainer then
-        self.columnContainer = self.uiContext:acquireElement("Frame", self.currentParent, {})
-        -- We temporarily disable nextXOffset/nextVerticalGap for this structural frame
+--- Begins a columnar layout, allowing side-by-side or adaptively stacked elements.
+--- Supports legacy signature: (xOffset, width)
+--- or options table: ({ width = 0.5, xOffset = 0, gap = 12, minWidth = 120 })
+--- @param xOffsetOrOptions number|table|nil Horizontal indent or options table.
+--- @param width number|nil Column width (pixels if > 1, proportion of container if <= 1).
+function lib.LayoutModel:beginColumn(xOffsetOrOptions, width)
+    -- If this is the start of a column group row, create a transparent container
+    if not self.columnGroup then
+        local groupContainer = self.uiContext:acquireElement("Frame", self.currentParent, {})
         local oldX, oldY = self.nextXOffset, self.nextVerticalGap
         self.nextXOffset, self.nextVerticalGap = 0, 0
-        self:anchorElement(self.columnContainer)
+        self:anchorElement(groupContainer)
         self.nextXOffset, self.nextVerticalGap = oldX, oldY
 
-        self.columnContainer:SetPoint("RIGHT", self.currentParent, "RIGHT", 0, 0)
+        groupContainer:SetPoint("RIGHT", self.currentParent, "RIGHT", 0, 0)
 
+        self.columnGroup = {
+            container = groupContainer,
+            columns = {},
+            previousParent = self.currentParent,
+            finalizePadding = 0
+        }
+        -- Backward-compatibility alias
+        self.columnContainer = groupContainer
         self.previousParentCol = self.currentParent
-        self.currentParent = self.columnContainer
     end
 
-    -- Reset vertical anchor for the new column
+    local opts = {}
+    if type(xOffsetOrOptions) == "table" then
+        for k, v in pairs(xOffsetOrOptions) do opts[k] = v end
+    else
+        opts.xOffset = xOffsetOrOptions
+        opts.width = width
+    end
+
+    if opts.width and type(opts.width) == "number" and opts.width > 0 and opts.width <= 1 then
+        opts.isProportional = true
+        opts.proportion = opts.width
+    elseif opts.width and type(opts.width) == "number" and opts.width > 1 then
+        opts.explicitWidth = opts.width
+    end
+
+    -- Create dedicated sub-frame for this column
+    local colFrame = self.uiContext:acquireElement("Frame", self.columnGroup.container, {})
+
+    local colData = {
+        frame = colFrame,
+        opts = opts,
+        elements = {},
+        totalEstimatedHeight = 0
+    }
+    table.insert(self.columnGroup.columns, colData)
+    self.currentColData = colData
+
+    -- Context Shift: Next elements will be anchored INSIDE this column frame
+    self.currentParent = colFrame
     self.lastAddedElement = nil
-    self.columnCurrentX = xOffset or 0
-    self.currentWidth = width
+    self.columnCurrentX = 0
+    self.currentWidth = opts.explicitWidth or nil
 end
 
--- Marks the end of a column and updates the tallest column tracker.
+--- Marks the end of a column and sets its bottom anchor to wrap its contents.
 function lib.LayoutModel:endColumn()
-    -- Track the absolute lowest point reached by any column in this row
+    if not self.currentColData then return end
+
+    local colData = self.currentColData
     if self.lastAddedElement then
-        if not self.tallestColumnBottom or self.lastAddedElement:GetBottom() < self.tallestColumnBottom:GetBottom() then
-            self.tallestColumnBottom = self.lastAddedElement
+        colData.frame:SetPoint("BOTTOM", self.lastAddedElement, "BOTTOM", 0, 0)
+        colData.lastElement = self.lastAddedElement
+    else
+        colData.frame:SetHeight(1)
+    end
+
+    self.currentColData = nil
+    self.lastAddedElement = nil
+    self.currentWidth = nil
+end
+
+--- Applies column positioning and dimensions according to the active responsive mode.
+--- @param group table The active column group metadata table.
+--- @param mode string Responsive mode ("normal" or "compact").
+--- @param totalWidth number|nil Optional container width in pixels.
+function lib.LayoutModel:applyColumnLayout(group, mode, totalWidth)
+    if not group or not group.container or not group.columns then return end
+    local cols = group.columns
+    if #cols == 0 then return end
+
+    local container = group.container
+    local availW = totalWidth
+    if not availW or availW <= 0 then
+        availW = (container.GetWidth and container:GetWidth()) or (self.parent and self.parent.GetWidth and self.parent:GetWidth()) or 500
+    end
+    if availW <= 0 then availW = 500 end
+
+    local isCompact = (mode == "compact") or (availW < self.responsiveThreshold)
+
+    if isCompact then
+        -- Compact mode: Stack columns vertically at 100% width
+        for i, col in ipairs(cols) do
+            col.frame:ClearAllPoints()
+            col.frame:SetWidth(availW)
+            col.frame:SetPoint("RIGHT", container, "RIGHT", 0, 0)
+            if i == 1 then
+                col.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+            else
+                local prevCol = cols[i - 1]
+                local gap = col.opts.gap or 12
+                col.frame:SetPoint("TOPLEFT", prevCol.frame, "BOTTOMLEFT", 0, -gap)
+            end
+            if col.lastElement then
+                col.frame:SetPoint("BOTTOM", col.lastElement, "BOTTOM", 0, 0)
+            else
+                col.frame:SetHeight(1)
+            end
+        end
+
+        local lastCol = cols[#cols]
+        container:SetPoint("BOTTOM", lastCol.frame, "BOTTOM", 0, -(group.finalizePadding or 0))
+    else
+        -- Normal mode: Side-by-side column positioning
+        local defaultColWidth = math.max(10, math.floor(availW / #cols))
+        local tallestCol = cols[1]
+        local lowestBottom = nil
+
+        for i, col in ipairs(cols) do
+            col.frame:ClearAllPoints()
+
+            -- Width calculation
+            local colW = defaultColWidth
+            if col.opts.isProportional then
+                colW = math.max(10, math.floor(availW * col.opts.proportion))
+            elseif col.opts.explicitWidth then
+                colW = col.opts.explicitWidth
+            end
+            col.frame:SetWidth(colW)
+
+            -- Horizontal placement
+            if col.opts.xOffset then
+                col.frame:SetPoint("TOPLEFT", container, "TOPLEFT", col.opts.xOffset, 0)
+            else
+                if i == 1 then
+                    col.frame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+                else
+                    local prevCol = cols[i - 1]
+                    local gap = col.opts.gap or 12
+                    col.frame:SetPoint("TOPLEFT", prevCol.frame, "TOPRIGHT", gap, 0)
+                end
+            end
+
+            -- Wrap bottom
+            if col.lastElement then
+                col.frame:SetPoint("BOTTOM", col.lastElement, "BOTTOM", 0, 0)
+            else
+                col.frame:SetHeight(1)
+            end
+
+            -- Track tallest column
+            local b = col.lastElement and col.lastElement.GetBottom and col.lastElement:GetBottom()
+            if b then
+                if not lowestBottom or b < lowestBottom then
+                    lowestBottom = b
+                    tallestCol = col
+                end
+            else
+                if (col.totalEstimatedHeight or 0) > (tallestCol.totalEstimatedHeight or 0) then
+                    tallestCol = col
+                end
+            end
+        end
+
+        if tallestCol and tallestCol.frame then
+            container:SetPoint("BOTTOM", tallestCol.frame, "BOTTOM", 0, -(group.finalizePadding or 0))
+            self.tallestColumnBottom = tallestCol.lastElement
+        else
+            container:SetHeight(10)
         end
     end
 end
 
--- Finalizes the column layout and updates the parent container's height.
+--- Finalizes the column layout, balances heights, registers responsive behavior,
+--- and optionally attaches the master content frame.
+--- @param contentFrame table|nil Optional master container frame to stretch height.
+--- @param bottomPadding number|nil Additional padding below the columns.
 function lib.LayoutModel:columnsFinalize(contentFrame, bottomPadding)
-    if self.columnContainer then
-        -- Snap the container's bottom to the tallest column automatically
-        if self.tallestColumnBottom then
-            self.columnContainer:SetPoint("BOTTOM", self.tallestColumnBottom, "BOTTOM", 0, -(bottomPadding or 0))
-        else
-            self.columnContainer:SetHeight(10)
+    local group = self.columnGroup
+    if not group then
+        if contentFrame and self.lastAddedElement then
+            contentFrame:SetPoint("BOTTOM", self.lastAddedElement, "BOTTOM", 0, -(bottomPadding or 20))
         end
-
-        -- Restore original context
-        self.currentParent = self.previousParentCol
-        self.lastAddedElement = self.columnContainer
-
-        -- State cleanup
-        self.columnContainer = nil
-        self.tallestColumnBottom = nil
-        self.columnCurrentX = 0
-        self.currentWidth = nil
+        return
     end
 
-    -- Optionally finalize the master content frame if provided
+    group.finalizePadding = bottomPadding or 0
+
+    -- Apply initial column arrangement
+    local initialWidth = (group.container.GetWidth and group.container:GetWidth()) or (self.parent and self.parent.GetWidth and self.parent:GetWidth()) or 0
+    local initialMode = self.responsiveMode or ((initialWidth < self.responsiveThreshold) and "compact" or "normal")
+    self:applyColumnLayout(group, initialMode, initialWidth)
+
+    -- Register container for live responsive adaptation
+    local capturedGroup = group
+    self:registerResponsiveElement(capturedGroup.container, function(elem, mode, w, h)
+        self:applyColumnLayout(capturedGroup, mode, w)
+    end)
+
+    -- Restore layout context
+    self.currentParent = group.previousParent
+    self.lastAddedElement = group.container
+    self.columnGroup = nil
+    self.currentColData = nil
+    self.columnCurrentX = 0
+    self.currentWidth = nil
+    self.columnContainer = nil
+
+    -- Optionally finalize master content frame
     if contentFrame and self.lastAddedElement then
         contentFrame:SetPoint("BOTTOM", self.lastAddedElement, "BOTTOM", 0, -(bottomPadding or 20))
     end
+
+    self:updateScrollRangeIfAvailable()
 end
 
 -------------------------------------------------------------------------------
@@ -749,15 +1072,17 @@ end
 -- Objective: Attach the LayoutModel class to the UI Context factory, so developers can create a LayoutModel directly from the context.
 -- Variables:
 -- parent (table): The main frame to attach the layout model to.
+-- options (table|nil): Optional responsive configuration table.
 -------------------------------------------------------------------------------
 
 if Context then
     --- Creates a specialized layout model cursor within the context.
     --- @param parent table The container frame to manage layout within.
+    --- @param options table|nil Optional responsive configuration options.
     --- @return table|nil layoutInstance The new LayoutModel instance.
-    function Context:createLayoutModel(parent)
+    function Context:createLayoutModel(parent, options)
         if lib.LayoutModel then
-            return lib.LayoutModel:new(self, parent)
+            return lib.LayoutModel:new(self, parent, options)
         end
     end
 end

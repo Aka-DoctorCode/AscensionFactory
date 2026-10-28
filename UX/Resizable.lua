@@ -43,8 +43,8 @@ function UX:makeResizable(frame, minWidth, minHeight, maxWidth, maxHeight)
 
     local minW, minH, maxW, maxH
     local onResizeStop, onSizeChanged
-    local gripSize = 16
-    local gripThickness = 4
+    local gripSize = 24
+    local gripThickness = 8
 
     if type(minWidth) == "table" then
         local opts = minWidth
@@ -54,8 +54,8 @@ function UX:makeResizable(frame, minWidth, minHeight, maxWidth, maxHeight)
         maxH = opts.maxHeight or opts.maxH or 0
         onResizeStop = opts.onResizeStop
         onSizeChanged = opts.onSizeChanged
-        gripSize = opts.gripSize or 16
-        gripThickness = opts.gripThickness or 4
+        gripSize = opts.gripSize or 24
+        gripThickness = opts.gripThickness or 8
     else
         minW = minWidth or 0
         minH = minHeight or 0

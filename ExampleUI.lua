@@ -137,8 +137,8 @@ local function createMockUi()
         width = 1000,
         height = 500,
         resizable = true,
-        minWidth = 400,
-        minHeight = 250,
+        minWidth = 700,
+        minHeight = 400,
     })
     local header, nextY = uiContext:createHeader({
         parent = frame,
@@ -157,152 +157,56 @@ local function createMockUi()
         tabs = { "Framing", "Text", "Buttons", "Inputs", "Sliders", "Steppers", "Dropdowns", "Scrollable", "Tooltips & Menus", "Toasts", "Color Picker" }
     })
 
-    -- Intro Panel (Framing & Responsive Showcase)
+    -- Intro Panel
     local introPanel = tabbedInterface.panels[1]
-    local introContent = introPanel.scrollChild or introPanel
+        local _, nextY = uiContext:createHeader({
+            parent = introPanel,
+            text = "Welcome to the Ascension Factory UI",
+            xOffset = 10,
+            yOffset = -10
+        })
+        _, nextY = uiContext:createParagraph({
+            parent = introPanel,
+            text = "The main window enclosing this interface is an example of the Frame builder from 01Frame.lua. The sidebar navigation on the left, along with the dynamic panels you are currently viewing, demonstrates the TabbedInterface builder from 02TabbedInterface.lua.",
+            xOffset = 10,
+            yOffset = nextY - 10,
+            fontSize = 24,
+        })
 
-    local _, nextY = uiContext:createHeader({
-        parent = introContent,
-        text = "Welcome to Ascension Factory Responsive UI",
+        _, nextY = uiContext:createParagraph({
+            parent = introPanel,
+            text = "Below is an example of the TwoColumnInterface component, which splits the layout evenly.",
+            xOffset = 10,
+            yOffset = nextY - 10,
+            fontSize = 16
+        })
+
+        local leftColumn, rightColumn = uiContext:createTwoColumns({
+            parent = introPanel,
+            yOffset = nextY - 20,
+            height = 100,
+            backgroundColor = styles.colors.surfaceLight,
+            name = "MockUITwoColumn"
+        })
+
+        uiContext:createParagraph({
+            parent = leftColumn,
+            text = "This is the left column. It takes up half the width minus a small gap.",
+            xOffset = 10,
+            yOffset = -10,
+            fontSize = 16
+        })
+
+        uiContext:createParagraph({
+        parent = rightColumn,
+        text = "This is the right column. It sits exactly 10 pixels away from the left column.",
         xOffset = 10,
         yOffset = -10,
-        elasticWidth = true,
-        wordWrap = true
-    })
-    _, nextY = uiContext:createParagraph({
-        parent = introContent,
-        text = "AscensionFactory now features intelligent responsive layouts. When this window is shrunk (e.g. from 1000px down to 400px), the sidebar collapses to a compact 40px icon strip, columns auto-stack vertically at 100% width, and form widgets adapt fluidly without clipping.",
-        xOffset = 10,
-        yOffset = nextY - 10,
-        fontSize = 14,
-    })
-
-    _, nextY = uiContext:createParagraph({
-        parent = introContent,
-        text = "Below is an interactive demonstration of responsive TwoColumn layout with fluid inputs, steppers, sliders, dropdowns, and flex rows. Try resizing the window using the corner grip!",
-        xOffset = 10,
-        yOffset = nextY - 8,
-        fontSize = 13
-    })
-
-    local leftColumn, rightColumn = uiContext:createTwoColumns({
-        parent = introContent,
-        yOffset = nextY - 16,
-        height = 200,
-        stackThreshold = 500,
-        backgroundColor = styles.colors.surfaceLight,
-        name = "MockUITwoColumn"
-    })
-
-    -- Left Column: Fluid Input, Stepper & Flex Toggle
-    uiContext:createLabel({
-        parent = leftColumn,
-        text = "Column A: Fluid Inputs & Flex Toggle",
-        xOffset = 10,
-        yOffset = 8,
-        fontSize = 14
-    })
-
-    uiContext:createInputField({
-        parent = leftColumn,
-        name = "MockUIFluidInput",
-        fluidWidth = true,
-        height = 26,
-        placeholder = "Fluid width text field...",
-        xOffset = 10,
-        yOffset = -22
-    })
-
-    uiContext:createStepper({
-        parent = leftColumn,
-        name = "MockUIFluidStepper",
-        fluidWidth = true,
-        height = 26,
-        minValue = 0,
-        maxValue = 100,
-        step = 5,
-        value = 40,
-        xOffset = 10,
-        yOffset = -58
-    })
-
-    uiContext:createToggle({
-        parent = leftColumn,
-        name = "MockUIFlexToggle",
-        flexRow = true,
-        text = "Adaptive Flex Row Switch",
-        height = 22,
-        xOffset = 10,
-        yOffset = -98,
-        getter = function() return true end
-    })
-
-    uiContext:createCheckbox({
-        parent = leftColumn,
-        name = "MockUIFlexCheckbox",
-        flexRow = true,
-        text = "Auto-Stack Columns (< 500px)",
-        checked = true,
-        xOffset = 10,
-        yOffset = -130
-    })
-
-    -- Right Column: Fluid Slider, Dropdown & Adaptive Dialog Buttons
-    uiContext:createLabel({
-        parent = rightColumn,
-        text = "Column B: Fluid Controls & Adaptive Buttons",
-        xOffset = 10,
-        yOffset = 8,
-        fontSize = 14
-    })
-
-    uiContext:createSlider({
-        parent = rightColumn,
-        name = "MockUIFluidSlider",
-        orientation = "HORIZONTAL",
-        fluidWidth = true,
-        height = 16,
-        minValue = 0,
-        maxValue = 100,
-        step = 1,
-        value = 75,
-        showFill = true,
-        xOffset = 10,
-        yOffset = -26
-    })
-
-    uiContext:createDropdown({
-        parent = rightColumn,
-        name = "MockUIFluidDropdown",
-        fluidWidth = true,
-        height = 26,
-        options = { "Obsidian Cyberpunk", "Neon Amber", "Matrix Phosphor", "Cobalt Void" },
-        xOffset = 10,
-        yOffset = -58
-    })
-
-    uiContext:createDialogButtonGroup({
-        parent = rightColumn,
-        name = "MockUIColumnDialogButtons",
-        stackThreshold = 380,
-        xOffset = 10,
-        yOffset = -100,
-        buttons = {
-            { text = "Confirm", variant = "accept", width = 80 },
-            { text = "Reset", variant = "cancel", width = 80 }
-        }
-    })
-
-    uiContext:createParagraph({
-        parent = rightColumn,
-        text = "Buttons adapt from horizontal row to 100% stacked vertical when width narrows.",
-        xOffset = 10,
-        yOffset = -140,
-        fontSize = 11
+        fontSize = 16
     })
 
     -- Header Panel
-    local headerPanel = tabbedInterface.panels[2].scrollChild or tabbedInterface.panels[2]
+    local headerPanel = tabbedInterface.panels[2]
         local _, nextY = uiContext:createHeader({
             parent = headerPanel,
             text = "Header Text: Used for section titles.",
@@ -324,7 +228,7 @@ local function createMockUi()
         })
 
     -- Buttons Panel
-    local buttonPanel = tabbedInterface.panels[3].scrollChild or tabbedInterface.panels[3]
+    local buttonPanel = tabbedInterface.panels[3]
         local _, buttonNextY = uiContext:createHeader({
             parent = buttonPanel,
             text = "Button Component",
@@ -531,7 +435,7 @@ local function createMockUi()
         })
 
     -- Inputs Panel
-    local inputPanel = tabbedInterface.panels[4].scrollChild or tabbedInterface.panels[4]
+    local inputPanel = tabbedInterface.panels[4]
         local _, inputNextY = uiContext:createHeader({
             parent = inputPanel,
             text = "Input Field Component",
@@ -621,7 +525,7 @@ local function createMockUi()
         })
 
     -- Sliders Panel
-    local sliderPanel = tabbedInterface.panels[5].scrollChild or tabbedInterface.panels[5]
+    local sliderPanel = tabbedInterface.panels[5]
         local _, sliderNextY = uiContext:createHeader({
             parent = sliderPanel,
             text = "Slider & Scrollbar Component",
@@ -770,7 +674,7 @@ local function createMockUi()
         })
 
     -- Steppers Panel
-    local stepperPanel = tabbedInterface.panels[6].scrollChild or tabbedInterface.panels[6]
+    local stepperPanel = tabbedInterface.panels[6]
         local _, stepperNextY = uiContext:createHeader({
             parent = stepperPanel,
             text = "Stepper Component",
@@ -871,7 +775,7 @@ local function createMockUi()
     -------------------------------------------------------------------------------
     -- 7. DROPDOWNS PANEL
     -------------------------------------------------------------------------------
-    local dropdownPanel = tabbedInterface.panels[7].scrollChild or tabbedInterface.panels[7]
+    local dropdownPanel = tabbedInterface.panels[7]
     if dropdownPanel then
         local _, nextDropdownY = uiContext:createHeader({
             parent = dropdownPanel,
@@ -1101,7 +1005,7 @@ local function createMockUi()
     -------------------------------------------------------------------------------
     -- 9. TOOLTIPS & CONTEXT MENUS PANEL
     -------------------------------------------------------------------------------
-    local tooltipsPanel = tabbedInterface.panels[9].scrollChild or tabbedInterface.panels[9]
+    local tooltipsPanel = tabbedInterface.panels[9]
     if tooltipsPanel then
         local _, nextTooltipY = uiContext:createHeader({
             parent = tooltipsPanel,
@@ -1266,7 +1170,7 @@ local function createMockUi()
     -------------------------------------------------------------------------------
     -- 10. TOAST NOTIFICATIONS PANEL
     -------------------------------------------------------------------------------
-    local toastsPanel = tabbedInterface.panels[10].scrollChild or tabbedInterface.panels[10]
+    local toastsPanel = tabbedInterface.panels[10]
     if toastsPanel then
         local _, nextToastY = uiContext:createHeader({
             parent = toastsPanel,
@@ -1421,7 +1325,7 @@ local function createMockUi()
     -------------------------------------------------------------------------------
     -- 11. COLOR PICKER PANEL
     -------------------------------------------------------------------------------
-    local colorPickerPanel = tabbedInterface.panels[11].scrollChild or tabbedInterface.panels[11]
+    local colorPickerPanel = tabbedInterface.panels[11]
     if colorPickerPanel then
         local _, nextColorY = uiContext:createHeader({
             parent = colorPickerPanel,

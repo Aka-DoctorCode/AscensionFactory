@@ -60,6 +60,7 @@ function Context:createStepper(options)
     })
     stepper:EnableMouse(true)
     stepper.fluidWidth = isFluid
+    stepper.fluidRightOffset = options.fluidRightOffset or options.rightOffset
 
     if options.name then
         _G[options.name] = stepper

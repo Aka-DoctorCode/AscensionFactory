@@ -59,6 +59,7 @@ function Context:createInputField(options)
     container:EnableMouse(true)
     container:SetClipsChildren(true)
     container.fluidWidth = isFluid
+    container.fluidRightOffset = options.fluidRightOffset or options.rightOffset
 
     if options.name then
         _G[options.name] = container

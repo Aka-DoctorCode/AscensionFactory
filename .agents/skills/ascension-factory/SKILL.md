@@ -141,11 +141,108 @@ AscensionFactory/
 | `Context:showToast(opt)` | `Frame` (`TOOLTIP`) | Ninguno | `duration=4`, `maxVisible=4`, `type="info"` |
 | `UX:makeScrollable(container, opt)` | `scrollFrame, child, bar` | `container` | `scrollBarWidth=12`, `step=30`, `thumbShape="capsule"` |
 
+### 4.1 Criterio de Diseño: Defaults/Fallbacks vs. Validación Estricta (`error`)
+
+En AscensionFactory existe una distinción intencional y estricta entre qué parámetros admiten un **fallback por defecto** y cuáles **no lo admiten y detienen la ejecución**:
+
+1. **Parámetros con Default / Fallback Silencioso**:
+   - Aplica a opciones puramente cosméticas, de comportamiento secundario o dimensiones estándar donde existe un valor universal lógico:
+     - Dimensiones base: `width = options.width or 60`, `height = options.height or 25`.
+     - Anclajes: `parent = options.parent or _G.UIParent`, `anchor = options.anchor or "CENTER"`.
+     - Colores: `color = options.color or styles.colors.primary`.
+     - Estados: `checked = (options.checked == true)`, `isOn = (options.isOn == true)`.
+
+2. **Parámetros Obligatorios SIN Fallback (`error(...)`)**:
+   - Aplica a datos estructurales esenciales donde inventar un valor por defecto causaría bugs silenciosos, desbordes de memoria o UI rota:
+     - `createMainFrame`: `options.name` es **obligatorio** (necesita identificador global para el registro de ventana y escape).
+     - `createTabbedInterface`: `parent`, `startY` y `tabs` son **obligatorios** (no se puede armar una interfaz con pestañas vacías).
+     - `createHeader`, `createLabel`, `createParagraph`: `options.text` es **obligatorio** (un texto sin contenido carece de sentido semántico).
+     - `createInputField`: `options.height` y (`width` o `fluidWidth`) son **obligatorios** (el EditBox nativo de WoW colapsa a 0px sin dimensiones explícitas).
+     - `createSlider`: `options.orientation` y (`length` o `fluidWidth`) son **obligatorios** (la orientación define la matemática trigonométrica de arrastre del thumb).
+     - `makeScrollable`: `container` es **obligatorio** (no se puede virtualizar un viewport sin un contenedor padre).
+
+3. **Manejo en Código**:
+   - Toda validación estricta se sitúa inmediatamente al inicio del constructor bajo el bloque `2.1 MANDATORY VALIDATION`:
+     ```lua
+     if not options.foo then
+         error("AscensionFactory: create<Widget> requires explicit 'foo'", 2)
+     end
+     ```
+   - Si un parámetro no es obligatorio, **siempre** debe recibir un valor de contingencia tipado con `or <default>`.
+
 *(Para la auditoría exhaustiva de opciones de cada componente, consultar siempre [Components/README.md](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/Components/README.md)).*
 
 ---
 
-## 5. Procedimiento para Modificaciones o Adición de Componentes
+## 5. Estructura y Estilo Canónico de Archivo (Basado en Componentes 01 al 05)
+
+> [!IMPORTANT]
+> ### REGLA DE ORO DE ESCRITURA DE ARCHIVOS EN `Components/`
+> La arquitectura, estructura modular, documentación y estilo de cualquier archivo nuevo o modificado en `Components/` **DEBE ser exactamente idéntica** al patrón canónico fundacional visto en los elementos **01 al 05** (`01Frame.lua`, `02TabbedInterface.lua`, `03TwoColumn.lua`, `04Text.lua`, `05Button.lua`).
+
+Todo archivo en `Components/` debe estructurarse estrictamente bajo esta plantilla:
+
+```lua
+-------------------------------------------------------------------------------
+-- Project: AscensionFactory
+-- Author: Aka-DoctorCode
+-- File: <NombreComponente>.lua
+-------------------------------------------------------------------------------
+---@diagnostic disable: undefined-global, undefined-field, inject-field
+
+-------------------------------------------------------------------------------
+-- 1. INITIALIZATION & NAMESPACE REGISTRATION
+-- Objective: Import the core AscensionFactory library and Context.
+-- This ensures the UI elements can be built upon the existing framework.
+-- Variables:
+-- MAJOR (string): The namespace identifier for the addon library.
+-- lib (table): The resolved library instance.
+-- Context (table): The object factory table where creation methods are attached.
+-------------------------------------------------------------------------------
+local MAJOR = "AscensionFactory"
+local lib = LibStub:GetLibrary(MAJOR)
+if not lib then return end
+
+local Context = lib.Context
+if not Context then return end
+
+-------------------------------------------------------------------------------
+-- 2. <NOMBRE> FACTORY
+-- Objective: <Explicación clara del objetivo del constructor>
+-- Variables:
+-- options (table): Configuration table including dimensions, styling, and callbacks.
+-- ... (documentar cada variable y sub-módulo interno)
+-------------------------------------------------------------------------------
+
+--- <Anotaciones LDoc / EmmyLua completas>
+--- @param options table|nil Configuration table.
+--- @return table <widget> The styled component instance.
+function Context:create<Widget>(options)
+    options = options or {}
+    local styles = self.styles
+    local ux = lib.UX
+    local parent = options.parent or _G.UIParent
+
+    -- 2.1 BASE ELEMENT ACQUISITION (Pooling obligatorio)
+    local widget = self:acquireElement("<Type>", parent, options)
+
+    -- 2.2 SIZING & GLOBAL NAMESPACE
+    if options.name then
+        _G[options.name] = widget
+        widget.globalName = options.name
+    end
+
+    -- 2.3 POSITIONING & ANCHORING
+    -- 2.4 STYLING & TEXTURES (Obsidian Cyberpunk de self.styles)
+    -- 2.5 INTERACTION & SCRIPTS (Hoverable, ClickOutside, OnClick, Callbacks)
+
+    return widget
+end
+```
+
+---
+
+## 6. Procedimiento para Modificaciones o Adición de Componentes
 
 Cuando el usuario apruebe realizar un cambio o agregar un nuevo widget:
 
@@ -155,7 +252,8 @@ Cuando el usuario apruebe realizar un cambio o agregar un nuevo widget:
 2. **Reutilizar Pooling y Componentes Existentes**:
    - Usar `self:acquireElement` para marcos base.
    - Si requiere botones, inputs o textos, componer con los constructores existentes de `Context`.
-3. **Aplicar el Sistema de Estilos**:
+3. **Aplicar el Sistema de Estilos y Estructura Canónica**:
+   - Respetar la plantilla de secciones y cabeceras de los elementos 01 al 05.
    - Usar `self.styles.colors` y `self.styles.fonts` (no hardcodear valores de color fijos a menos que sea una sobreescritura deliberada).
 4. **Verificar Compilación y Sintaxis**:
    ```bash

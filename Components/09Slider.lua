@@ -77,6 +77,7 @@ function Context:createSlider(options)
     })
     slider:EnableMouse(true)
     slider.fluidWidth = isFluid
+    slider.fluidRightOffset = options.fluidRightOffset or options.rightOffset
 
     if options.name then
         _G[options.name] = slider

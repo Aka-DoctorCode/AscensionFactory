@@ -31,7 +31,7 @@ Every configuration parameter is audited below with explicit data types, require
 | [`14Toast.lua`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/Components/14Toast.lua) | `Context:showToast(options)` / `createToast` | Cyberpunk HUD notification toast & queue | Toast `Frame` (`01Frame`), Title `FontString`, Message `FontString`, `IconButton` (Close), Icon `Frame` (Vector/Atlas), Countdown `StatusBar` | Todo opcional (`duration=4`, `maxVisible=4`, `type="info"`, `showProgress=false`) |
 | [`15ColorPicker.lua`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/Components/15ColorPicker.lua) | `Context:createColorPicker(options)` / `openColorPicker` | Cyberpunk RGBA modal color picker & swatch | Swatch `Button`, Modal `Frame`, Hex `InputField`, RGBA `Slider[]`, History `Button[]` | Todo opcional (`color={1,1,1,1}`, `hasAlpha=true`) |
 | [`UX/Scrollable.lua`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/UX/Scrollable.lua) | `UX:makeScrollable(container, options)` | UX scroll viewport capability | `ScrollFrame`, Content `Frame`, Vertical `Slider` (`09Slider`) | `container` (**Obligatorio**), `scrollBarWidth=12`, `step=30`, `thumbShape="capsule"` |
-| [`UX/Resizable.lua`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/UX/Resizable.lua) | `UX:makeResizable(frame, options)` | UX corner bracket resize capability | Corner Button, Bracket `Texture[2]` (`WHITE8X8`), Metallic states | `frame` (**Obligatorio**), `gripSize=16`, `gripThickness=4`, metallic palette |
+| [`UX/Resizable.lua`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/UX/Resizable.lua) | `UX:makeResizable(frame, options)` | UX corner bracket resize capability | Corner Button, Bracket `Texture[2]` (`WHITE8X8`), Metallic states | `frame` (**Obligatorio**), `gripSize=24`, `gripThickness=8`, metallic palette |
 | [`Core/LayoutModel.lua`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/Core/LayoutModel.lua) | `Context:createLayoutModel(parent)` | Layout engine with dynamic stacking, responsive modes & wrappers | Dynamic layout state, responsive registry, fluid anchor calculator | `parent` (**Obligatorio**), `enableResponsive(options)`, `getAvailableWidth(padding)` |
 
 ---
@@ -929,9 +929,9 @@ Capacidad UX que transforma un frame en una ventana redimensionable agregando un
 
 - **Composite Elements**:
   - `frame` (`Frame`): Frame interactivo configurado con `SetResizable(true)`.
-  - `frame.resizeBtn` (`Button`): Botón interactivo de 16x16 px en `BOTTOMRIGHT` con nivel `FrameLevel + 10`.
-  - `resizeBtn.hBar` (`Texture`): Barra horizontal inferior del bracket (16x4 px, `WHITE8X8`).
-  - `resizeBtn.vBar` (`Texture`): Barra vertical derecha del bracket (4x16 px, `WHITE8X8`).
+  - `frame.resizeBtn` (`Button`): Botón interactivo de 24x24 px en `BOTTOMRIGHT` con nivel `FrameLevel + 10`.
+  - `resizeBtn.hBar` (`Texture`): Barra horizontal inferior del bracket (24x8 px, `WHITE8X8`).
+  - `resizeBtn.vBar` (`Texture`): Barra vertical derecha del bracket (8x24 px, `WHITE8X8`).
 
 ##### Tabla de Opciones de Configuración (`options`)
 | Parámetro | Tipo | Requisito | Valor por Defecto | Descripción |
@@ -941,8 +941,8 @@ Capacidad UX que transforma un frame en una ventana redimensionable agregando un
 | `options.minHeight` / `minH` | `number` | **Opcional** | `0` | Alto mínimo permitido al redimensionar en píxeles. |
 | `options.maxWidth` / `maxW` | `number` | **Opcional** | `0` | Ancho máximo permitido al redimensionar (`0` = sin límite). |
 | `options.maxHeight` / `maxH` | `number` | **Opcional** | `0` | Alto máximo permitido al redimensionar (`0` = sin límite). |
-| `options.gripSize` | `number` | **Opcional** | `16` | Longitud en píxeles de los brazos del bracket angular y botón de agarre. |
-| `options.gripThickness` | `number` | **Opcional** | `4` | Grosor en píxeles de los brazos del bracket angular de esquina. |
+| `options.gripSize` | `number` | **Opcional** | `24` | Longitud en píxeles de los brazos del bracket angular y botón de agarre. |
+| `options.gripThickness` | `number` | **Opcional** | `8` | Grosor en píxeles de los brazos del bracket angular de esquina. |
 | `options.onResizeStop` | `function(frame, width, height)` | **Opcional** | `nil` | Callback ejecutado al terminar la redimensión (`OnMouseUp`). |
 | `options.onSizeChanged` | `function(frame, width, height)` | **Opcional** | `nil` | Callback ejecutado continuamente mientras cambia de tamaño (`OnSizeChanged`). |
 
@@ -956,22 +956,45 @@ Capacidad UX que transforma un frame en una ventana redimensionable agregando un
 ### 18. `Core/LayoutModel.lua`
 
 #### Responsive Capability Engine & Component Wrappers
-Motor de maquetación y posicionamiento dinámico vertical/columnar con motor reactivo de breakpoints (`normal` vs `compact`), propagación a elementos registrados, cálculo de anchos disponibles y wrappers con soporte de componentes fluidos y elásticos.
+Motor de maquetación y posicionamiento dinámico vertical/columnar con motor reactivo de breakpoints (`normal` vs `compact`), propagación a elementos registrados, cálculo de anchos disponibles, wrappers con soporte de componentes fluidos y apilamiento columnar adaptativo automático.
+
+##### Constructor y Activación Automática
+El modelo de layout puede instanciarse mediante `Context:createLayoutModel(parent, options)` o reiniciarse con `layout:reset(parent, options)`. Si `options.responsive ~= false`, el sistema activa automáticamente la observación responsiva en tiempo real sobre el contenedor.
+
+##### Tabla de Opciones del Layout (`options`)
+| Parámetro | Tipo | Requisito | Valor por Defecto | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `responsive` | `boolean` | **Opcional** | `true` | Activa automáticamente la capacidad responsiva y la observación del contenedor. |
+| `threshold` | `number` | **Opcional** | `480` | Punto de quiebre en píxeles para alternar entre modo `"normal"` ($\ge 480$px) y `"compact"` ($< 480$px). |
+| `onModeChange` | `function` | **Opcional** | `nil` | Callback ejecutado al cambiar de breakpoint: `function(layout, mode, width, height)`. |
+| `frame` | `Frame` | **Opcional** | `parent` | Frame de referencia a observar para eventos `OnSizeChanged`. |
+| `verticalGap` | `number` | **Opcional** | `6` | Separación vertical por defecto entre elementos consecutivos. |
 
 ##### Métodos del Motor Responsivo
 | Método | Parámetros | Retorno | Descripción |
 | :--- | :--- | :--- | :--- |
 | `layout:enableResponsive(options)` | `options`: `{ threshold=480, frame=parent, onModeChange=func, alwaysNotify=bool }` | `void` | Activa la observación de `OnSizeChanged` en el frame con debouncing de 50ms y transiciones de modo. |
-| `layout:notifyResponsive(newMode, width, height)` | `newMode`: `"normal"` \| `"compact"`, `width`: `number`, `height`: `number` | `void` | Notifica la transición de modo a todos los elementos registrados y al callback `onModeChange`. |
+| `layout:notifyResponsive(newMode, width, height)` | `newMode`: `"normal"` \| `"compact"`, `width`: `number`, `height`: `number` | `void` | Notifica la transición de modo a todos los elementos registrados, al callback `onModeChange` y actualiza el viewport scrollable. |
 | `layout:registerResponsiveElement(element, callback)` | `element`: `table`, `callback`: `function(element, mode, width, height)` | `void` | Registra un elemento UI para recibir notificaciones reactivas de cambio de modo responsivo. |
-| `layout:getAvailableWidth(padding)` | `padding`: `number` (opcional, default `0`) | `number` | Calcula y retorna el ancho utilizable disponible en píxeles dentro del contenedor actual. |
+| `layout:getAvailableWidth(padding, element)` | `padding`: `number` (opcional, default `0`), `element`: `table` (opcional) | `number` | Calcula y retorna el ancho utilizable disponible en píxeles dentro del contenedor o frame padre del elemento. |
+| `layout:updateScrollRangeIfAvailable()` | *Ninguno* | `void` | Inspecciona el contenedor activo y sus ancestros; si pertenecen a un viewport de `Scrollable.lua`, invoca `updateScrollRange()`. |
+
+##### Gestión de Columnas Adaptativas
+| Método | Parámetros | Descripción |
+| :--- | :--- | :--- |
+| `layout:beginColumn(xOffsetOrOptions, width)` | `xOffsetOrOptions`: `number` \| `table`, `width`: `number` | Inicia una columna. Admite coordenadas fijas `beginColumn(10, 200)` o tabla `beginColumn({ width = 0.5, gap = 12 })`. Si `width <= 1.0`, se interpreta como proporción porcentual. |
+| `layout:endColumn()` | *Ninguno* | Cierra la columna actual, ajusta su anclaje inferior al último elemento agregado y calcula la altura estimada. |
+| `layout:applyColumnLayout(group, mode, totalWidth)` | `group`: `table`, `mode`: `string`, `totalWidth`: `number` | Aplica el ordenamiento visual: en modo `"normal"` coloca columnas en paralelo lado a lado; en modo `"compact"` apila automáticamente las columnas de forma vertical al 100% de ancho. |
+| `layout:columnsFinalize(contentFrame, bottomPadding)` | `contentFrame`: `Frame` (opcional), `bottomPadding`: `number` (opcional) | Balancea las alturas de las columnas, ancla la base del grupo a la columna más alta, registra el listener responsivo para redimensionamiento en vivo y opcionalmente ancla el contenedor maestro. |
 
 ##### Wrappers de Componentes Adaptativos en `LayoutModel`
+Todos los controles interactivos heredan automáticamente `fluidWidth = true` si el layout es responsivo y no se especifica un ancho estático fijo.
 | Wrapper | Opciones Responsivas Clave | Comportamiento |
 | :--- | :--- | :--- |
 | `layout:header(id, text, options)` | `elasticWidth=true`, `wordWrap=true`, `rightOffset=-10` | Ancla el extremo derecho al contenedor padre activando wrap automático sin alterar `fontSize`. |
 | `layout:label(id, text, options)` | `elasticWidth=true`, `wordWrap=true`, `rightOffset=-10` | Ancla el extremo derecho al contenedor padre activando wrap automático. |
 | `layout:paragraph(id, text, rightOffset)` | `rightOffset=-10` | Envoltura de texto multilínea con auto-wrap delimitado por margen derecho. |
+| `layout:button(id, options, ...)` | `fluidWidth=true`, `rightOffset=-10` | Botón adaptable al ancho disponible de la columna o contenedor padre. |
 | `layout:toggle(id, options, ...)` | `flexRow=true`, `text="..."`, `rightOffset=-10` | Fila adaptable al 100% de ancho con switch a la derecha y etiqueta izquierda con wordWrap. |
 | `layout:checkbox(id, options, ...)` | `flexRow=true`, `text="..."`, `rightOffset=-10` | Fila adaptable al 100% de ancho con casilla a la derecha y etiqueta izquierda con wordWrap. |
 | `layout:inputField(id, options, ...)` | `fluidWidth=true`, `rightOffset=-10` | Ancho fluido con auto-anclaje a la derecha y redimensión adaptativa de EditBox en multilínea. |

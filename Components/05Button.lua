@@ -270,6 +270,7 @@ end
 -------------------------------------------------------------------------------
 function Context:createDialogButton(options)
     local styles = self.styles
+    local parent = options.parent or _G.UIParent
     local variant = (options.variant or options.buttonType or "neutral"):lower()
     
     local defaultText = ""
@@ -344,6 +345,7 @@ function Context:createDialogButton(options)
 
     if options.fluidWidth then
         button.fluidWidth = true
+        button.fluidRightOffset = options.fluidRightOffset or options.rightOffset
         local point = options.point or options.anchorPoint or "TOPLEFT"
         local yOffset = options.yOffset or 0
         local rightOffset = options.fluidRightOffset or options.rightOffset or -10

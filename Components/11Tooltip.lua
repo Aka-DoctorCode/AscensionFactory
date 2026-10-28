@@ -90,6 +90,14 @@ function Context:createTooltip(options)
 
         if not descText or descText == "" then return end
 
+        -- Type defense to guarantee string arguments for WoW FontString:SetText C API
+        if titleText and type(titleText) ~= "string" then
+            titleText = tostring(titleText)
+        end
+        if type(descText) ~= "string" then
+            descText = tostring(descText)
+        end
+
         -- Set text content
         if titleText and titleText ~= "" then
             self.title:SetText(titleText)

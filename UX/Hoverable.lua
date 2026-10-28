@@ -110,7 +110,12 @@ function UX:makeHoverable(element, config)
     local function showTooltip()
         local currentConfig = element.hoverConfig or config
         if not currentConfig.tooltip then return end
-        local tooltipData = type(currentConfig.tooltip) == "function" and currentConfig.tooltip(element) or currentConfig.tooltip
+        local tooltipData
+        if type(currentConfig.tooltip) == "function" then
+            tooltipData = currentConfig.tooltip(element)
+        else
+            tooltipData = currentConfig.tooltip
+        end
         if not tooltipData then return end
 
         local uiContext = element.uiContext or (element.hoverConfig and element.hoverConfig.uiContext) or (config and config.uiContext) or lib.Context

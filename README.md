@@ -158,13 +158,19 @@ layout:button("ApplyButton", "Save Changes", nil, 120, 26, onClickCallback)
 #### Layout Engine Features
 
 - **Sections (`beginSection(width)` / `endSection()`)**: Wraps widgets in an Obsidian bordered card that automatically stretches its bottom to wrap enclosed contents.
-- **Columns (`beginColumn(xOffset, width)` / `endColumn()` / `columnsFinalize(contentFrame, padding)`)**: Balances multi-column layouts and automatically sizes the parent container to match the tallest column.
+- **Adaptive Columns (`beginColumn(xOffsetOrOptions, width)` / `endColumn()` / `columnsFinalize(contentFrame, padding)`)**:
+  - Balances multi-column layouts side-by-side in `"normal"` mode ($\ge 480$px).
+  - Automatically stacks columns vertically at 100% width in `"compact"` mode ($< 480$px).
+  - Supports proportional/percentage widths (`width <= 1.0`, e.g. `0.5` = 50% width).
+  - Automatically balances heights to the tallest column and snaps bottom padding.
 - **Responsive Breakpoint Engine**:
-  - `layout:enableResponsive(options)`: Enables container size observation on `OnSizeChanged` with debouncing, notifying mode changes (`"normal"` vs `"compact"`).
+  - `Context:createLayoutModel(parent, options)`: Automatically enables responsive capability unless `options.responsive == false` (default threshold: 480px).
+  - `layout:enableResponsive(options)`: Enables container size observation on `OnSizeChanged` with 50ms debouncing, notifying mode changes (`"normal"` vs `"compact"`).
   - `layout:registerResponsiveElement(element, callback)`: Hooks element callbacks to react when breakpoints trigger.
-  - `layout:getAvailableWidth(padding)`: Dynamically computes usable width inside active containers.
-  - **Fluid Component Wrappers**: `layout:inputField`, `layout:slider`, `layout:stepper`, `layout:dropdown` accept `fluidWidth = true` to stretch automatically to the right edge.
-  - **Flex & Elastic Wrappers**: `layout:header`, `layout:label` support `elasticWidth = true`, and `layout:toggle`, `layout:checkbox` support `flexRow = true`.
+  - `layout:getAvailableWidth(padding, element)`: Dynamically computes usable width inside active containers or element parent frames.
+  - `layout:updateScrollRangeIfAvailable()`: Automatically reflows and recalculates scroll range when inside a scrollable viewport.
+  - **Smart Fluid Inheritance**: When responsiveness is active, all interactive controls (`button`, `toggle`, `checkbox`, `slider`, `stepper`, `inputField`, `dropdown`) inherit `fluidWidth = true` by default, expanding flexibly to available space unless given a fixed pixel width.
+  - **Flex & Elastic Wrappers**: `layout:header`, `layout:label` support `elasticWidth = true` / `wordWrap = true`, and `layout:toggle`, `layout:checkbox` support full-width `flexRow = true`.
 
 ---
 
