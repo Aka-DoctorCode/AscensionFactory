@@ -1,6 +1,7 @@
 <h1>@project-version@</h1>
 <ul>
-    <li>Initial Release</li>
+    <li>UI library updates and compatibility with AscensionSuit and dependent addons</li>
+    <li>.toc update</li>
 </ul>
 <br>
 <h2>Positive feedback is always appreciated, it helps me to continue working on this project</h2>

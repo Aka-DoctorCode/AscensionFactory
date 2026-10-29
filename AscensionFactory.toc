@@ -1,11 +1,13 @@
 ## Interface: 120105
 ## Title: Ascension Factory
-## Notes: A library of UI components for creating addons.
+## Notes: A library of UI/UX components for creating addons.
 ## Author: Aka-DoctorCode
 ## Category: Utility
 ## Version: V01
 ## IconTexture: Interface\AddOns\AscensionFactory\Media\AkaDoctorCode.png
 ## RequiredDeps: AscensionSuit
+## X-Curse-Project-ID: 1771070
+## X-WAGO-ID: rN4rzMKD
 
 Core/Core.lua
 Core/Context.lua
