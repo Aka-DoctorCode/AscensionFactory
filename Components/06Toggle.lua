@@ -32,8 +32,12 @@ if not Context then return end
 -- updateAppearance (function): Logic dictating thumb position and color changes.
 -------------------------------------------------------------------------------
 function Context:createToggle(options)
+    assert(type(options) == "table", "options table required for createToggle")
+    assert(options.parent, "options.parent is required for createToggle")
+    assert(options.name, "options.name is required for createToggle")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local styles = self.styles
-    local parent = options.parent or UIParent
+    local parent = options.parent
     local height = options.height or 24
     local width = options.width or 52
     local padding = options.padding or 2
@@ -46,9 +50,7 @@ function Context:createToggle(options)
         height = height
     })
     
-    if options.name then
-        _G[options.name] = toggle
-    end
+    _G[options.name] = toggle
 
     local point = options.point or options.anchorPoint or "TOPLEFT"
     local yOffset = options.yOffset or 0
@@ -60,7 +62,7 @@ function Context:createToggle(options)
         toggle:SetPoint(
             point,
             targetParent,
-            options.relativePoint or point,
+            options.relativePoint or point or "TOPLEFT",
             xOffset,
             yOffset
         )
@@ -110,6 +112,7 @@ function Context:createToggle(options)
         -- Text label is left-aligned and flexes up to the switch with automatic word wrap
         local labelText = options.text or options.label or ""
         local label = self:createLabel({
+            name = (options.name or "Toggle") .. "Label",
             parent = toggle,
             text = labelText
         })
@@ -219,6 +222,10 @@ function Context:createToggle(options)
         if options.onClick then
             options.onClick(self, self.isOn)
         end
+    end)
+
+    toggle:HookScript("OnLeave", function()
+        updateAppearance("normal")
     end)
     
     if not toggle.setState then

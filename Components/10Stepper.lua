@@ -32,20 +32,22 @@ if not Context then return end
 -- minusButton, plusButton, inputField (tables): The composited sub-components.
 -------------------------------------------------------------------------------
 function Context:createStepper(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for createStepper")
+    assert(options.parent, "options.parent is required for createStepper")
+    assert(options.name, "options.name is required for createStepper")
+    assert(options.minValue ~= nil or options.min ~= nil, "options.minValue (or min) is required for createStepper")
+    assert(options.maxValue ~= nil or options.max ~= nil, "options.maxValue (or max) is required for createStepper")
+    assert(options.step ~= nil or options.stepSize ~= nil, "options.step (or stepSize) is required for createStepper")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local styles = self.styles
-    local parent = options.parent or UIParent
+    local parent = options.parent
 
     -- 2.1 MANDATORY VALIDATION (Explicit sizing or fluid width)
     local isFluid = options.fluidWidth or false
     if not options.width and not isFluid then
         error("AscensionFactory: createStepper requires explicit 'width' (or 'fluidWidth = true')", 2)
     end
-    if not options.height then
-        error("AscensionFactory: createStepper requires explicit 'height'", 2)
-    end
-
-    local height = options.height
+    local height = options.height or 24
     local buttonSize = height
     local width = options.width or (isFluid and 160)
 
@@ -61,10 +63,10 @@ function Context:createStepper(options)
     stepper:EnableMouse(true)
     stepper.fluidWidth = isFluid
     stepper.fluidRightOffset = options.fluidRightOffset or options.rightOffset
+    stepper.clampToContainer = (options.clampToContainer ~= false)
+    stepper._baseWidth = nil
 
-    if options.name then
-        _G[options.name] = stepper
-    end
+    _G[options.name] = stepper
 
     local point = options.point or options.anchorPoint or "TOPLEFT"
     local yOffset = options.yOffset or 0
@@ -75,7 +77,7 @@ function Context:createStepper(options)
         stepper:SetPoint(
             point,
             targetParent,
-            options.relativePoint or point,
+            options.relativePoint or point or "TOPLEFT",
             options.xOffset or 0,
             yOffset
         )
@@ -121,6 +123,7 @@ function Context:createStepper(options)
         name = options.name and (options.name .. "MinusBtn") or nil,
         iconType = "minus",
         size = buttonSize,
+        tooltip = false,
         point = "LEFT",
         relativeTo = stepper,
         relativePoint = "LEFT",
@@ -135,6 +138,7 @@ function Context:createStepper(options)
         name = options.name and (options.name .. "InputField") or nil,
         width = isFluid and 50 or inputWidth,
         height = height,
+        tooltip = false,
         text = formatValue(currentValue),
         numeric = not (options.allowNegative or stepper.minValue < 0),
         point = "LEFT",
@@ -156,19 +160,19 @@ function Context:createStepper(options)
         name = options.name and (options.name .. "PlusBtn") or nil,
         iconType = "plus",
         size = buttonSize,
-        point = isFluid and "RIGHT" or "LEFT",
-        relativeTo = isFluid and stepper or inputField,
-        relativePoint = isFluid and "RIGHT" or "RIGHT",
-        xOffset = isFluid and 0 or -1,
+        tooltip = false,
+        point = "RIGHT",
+        relativeTo = stepper,
+        relativePoint = "RIGHT",
+        xOffset = 0,
         yOffset = 0
     })
     stepper.plusButton = plusButton
 
-    if isFluid then
-        inputField:ClearAllPoints()
-        inputField:SetPoint("LEFT", minusButton, "RIGHT", -1, 0)
-        inputField:SetPoint("RIGHT", plusButton, "LEFT", 1, 0)
-    else
+    inputField:ClearAllPoints()
+    inputField:SetPoint("LEFT", minusButton, "RIGHT", -1, 0)
+    inputField:SetPoint("RIGHT", plusButton, "LEFT", 1, 0)
+    if not isFluid then
         local actualWidth = (buttonSize * 2) + inputWidth - 2
         stepper:SetWidth(actualWidth)
     end

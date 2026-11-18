@@ -32,9 +32,15 @@ if not Context then return end
 -- track, border, fill, thumb (tables): Visual textures and interactive handles.
 -------------------------------------------------------------------------------
 function Context:createSlider(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for createSlider")
+    assert(options.parent, "options.parent is required for createSlider")
+    assert(options.name, "options.name is required for createSlider")
+    assert(options.minValue ~= nil or options.min ~= nil, "options.minValue (or min) is required for createSlider")
+    assert(options.maxValue ~= nil or options.max ~= nil, "options.maxValue (or max) is required for createSlider")
+    assert(options.step ~= nil or options.stepSize ~= nil, "options.step (or stepSize) is required for createSlider")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local styles = self.styles
-    local parent = options.parent or UIParent
+    local parent = options.parent
 
     -- 2.1 MANDATORY VALIDATION (Orientation & Length)
     if not options.orientation then
@@ -78,10 +84,10 @@ function Context:createSlider(options)
     slider:EnableMouse(true)
     slider.fluidWidth = isFluid
     slider.fluidRightOffset = options.fluidRightOffset or options.rightOffset
+    slider.clampToContainer = (orientation == "HORIZONTAL") and (options.clampToContainer ~= false) or false
+    slider._baseWidth = nil
 
-    if options.name then
-        _G[options.name] = slider
-    end
+    _G[options.name] = slider
 
     local point = options.point or options.anchorPoint or "TOPLEFT"
     local yOffset = options.yOffset or 0
@@ -92,7 +98,7 @@ function Context:createSlider(options)
         slider:SetPoint(
             point,
             targetParent,
-            options.relativePoint or point,
+            options.relativePoint or point or "TOPLEFT",
             options.xOffset or 0,
             yOffset
         )
@@ -655,6 +661,132 @@ function Context:createSlider(options)
 
     return slider
 end
+
+-------------------------------------------------------------------------------
+-- 2.11 COMPOSITE SLIDER WITH INTEGRATED STEPPER
+-- Objective: Creates a horizontal Slider with an integrated, synchronized Stepper
+-- anchored directly beneath it for both quick dragging and precise numeric entry.
+-------------------------------------------------------------------------------
+function Context:createSliderWithStepper(options)
+    assert(type(options) == "table", "options table required for createSliderWithStepper")
+    assert(options.parent, "options.parent is required for createSliderWithStepper")
+    assert(options.name, "options.name is required for createSliderWithStepper")
+    assert(options.minValue ~= nil or options.min ~= nil, "options.minValue (or min) is required for createSliderWithStepper")
+    assert(options.maxValue ~= nil or options.max ~= nil, "options.maxValue (or max) is required for createSliderWithStepper")
+    assert(options.step ~= nil or options.stepSize ~= nil, "options.step (or stepSize) is required for createSliderWithStepper")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
+
+    local sliderOpts = {}
+    for k, v in pairs(options) do
+        sliderOpts[k] = v
+    end
+    sliderOpts.orientation = "HORIZONTAL"
+
+    local userSetter = options.setter
+    local userOnValueChanged = options.onValueChanged
+    local isSyncing = false
+
+    local slider
+    local stepper
+
+    sliderOpts.setter = nil
+    sliderOpts.onValueChanged = function(_, val, isUserInput)
+        if isSyncing then return end
+        isSyncing = true
+        if stepper and stepper.setValue then
+            stepper:setValue(val, true, false)
+        end
+        isSyncing = false
+        if userSetter then
+            userSetter(val)
+        end
+        if userOnValueChanged then
+            userOnValueChanged(slider, val, isUserInput)
+        end
+    end
+
+    slider = self:createSlider(sliderOpts)
+
+    local stepperGap = options.stepperGap or 4
+    local stepperHeight = options.stepperHeight or 24
+    local sliderLength = slider:GetWidth() or options.length or options.width or 200
+
+    stepper = self:createStepper({
+        parent = options.parent,
+        name = options.name .. "Stepper",
+        width = sliderLength,
+        height = stepperHeight,
+        fluidWidth = true,
+        minValue = slider.minValue,
+        maxValue = slider.maxValue,
+        step = slider.step,
+        decimals = options.decimals,
+        allowNegative = options.allowNegative,
+        value = slider:getValue(),
+        tooltip = options.stepperTooltip ~= nil and options.stepperTooltip or (options.tooltip ~= nil and options.tooltip or false),
+        onValueChanged = function(_, val, isUserInput)
+            if isSyncing then return end
+            isSyncing = true
+            if slider and slider.setValue then
+                slider:setValue(val, true, false)
+            end
+            isSyncing = false
+            if userSetter then
+                userSetter(val)
+            end
+            if userOnValueChanged then
+                userOnValueChanged(slider, val, isUserInput)
+            end
+        end
+    })
+
+    stepper:ClearAllPoints()
+    stepper:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", 0, -stepperGap)
+    stepper:SetPoint("TOPRIGHT", slider, "BOTTOMRIGHT", 0, -stepperGap)
+
+    slider.stepper = stepper
+
+    local origSetValue = slider.setValue
+    function slider:setValue(val, isSilent, isUserInput)
+        origSetValue(self, val, isSilent, isUserInput)
+        if self.stepper and self.stepper.setValue and not isSyncing then
+            isSyncing = true
+            self.stepper:setValue(self:getValue(), true, false)
+            isSyncing = false
+        end
+    end
+    slider.SetValue = slider.setValue
+
+    local origSetMinMaxValues = slider.setMinMaxValues
+    function slider:setMinMaxValues(minVal, maxVal)
+        origSetMinMaxValues(self, minVal, maxVal)
+        if self.stepper and self.stepper.setMinMaxValues then
+            self.stepper:setMinMaxValues(minVal, maxVal)
+        end
+    end
+    slider.SetMinMaxValues = slider.setMinMaxValues
+
+    local origSetStep = slider.setStep
+    function slider:setStep(newStep)
+        origSetStep(self, newStep)
+        if self.stepper and self.stepper.setStep then
+            self.stepper:setStep(newStep)
+        end
+    end
+    slider.SetStep = slider.setStep
+
+    local origSetEnabled = slider.setEnabled
+    function slider:setEnabled(enabled)
+        origSetEnabled(self, enabled)
+        if self.stepper and self.stepper.setEnabled then
+            self.stepper:setEnabled(enabled ~= false)
+        end
+    end
+    slider.SetEnabled = slider.setEnabled
+
+    return slider, stepper
+end
+Context.CreateSliderWithStepper = Context.createSliderWithStepper
 
 -------------------------------------------------------------------------------
 -- 3. EXTENSION & EXPANSION NOTES

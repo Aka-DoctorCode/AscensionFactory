@@ -67,30 +67,17 @@ local function normalizeColor(input)
     return 1, 1, 1, 1
 end
 
---- Applies a lightweight procedural checkerboard grid on the BACKGROUND layer of a frame.
+-- Remueve el bucle de filas/columnas para evitar instanciar docenas de FontStrings/Textures
 local function applyCheckerboard(frame, width, height, tileSize)
     if not frame or type(frame.CreateTexture) ~= "function" then
         return
     end
-    tileSize = tileSize or 5
-    local cols = math.ceil(width / tileSize)
-    local rows = math.ceil(height / tileSize)
-    local darkTile = { 0.14, 0.16, 0.20, 1 }
-    local lightTile = { 0.28, 0.30, 0.35, 1 }
-
-    for r = 0, rows - 1 do
-        for c = 0, cols - 1 do
-            local tile = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
-            local w = math.min(tileSize, width - (c * tileSize))
-            local h = math.min(tileSize, height - (r * tileSize))
-            if w > 0 and h > 0 then
-                tile:SetSize(w, h)
-                tile:SetPoint("TOPLEFT", frame, "TOPLEFT", c * tileSize, -r * tileSize)
-                local isDark = ((r + c) % 2 == 0)
-                tile:SetColorTexture(unpack(isDark and darkTile or lightTile))
-            end
-        end
-    end
+    local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
+    bg:SetAllPoints()
+    -- Native WoW tileable texture
+    bg:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+    bg:SetColorTexture(0.12, 0.14, 0.18, 1.00) -- #1F242E
+    frame.checkerBg = bg
 end
 
 -------------------------------------------------------------------------------
@@ -109,36 +96,33 @@ function Context:getOrCreateColorPickerDialog()
     end
 
     local styles = self.styles or lib.DefaultStyles
-    local dialogWidth = 280
-    local dialogHeight = 220
+    local dialogWidth = 300
+    local dialogHeight = 235
 
     -- 3.1 BASE MODAL FRAME CONTAINER (Reusing 01Frame.lua)
     local dialog = self:createFrame({
+        name = "AscensionFactoryColorPickerDialog",
         parent = _G.UIParent,
         width = dialogWidth,
         height = dialogHeight,
+        point = "CENTER",
         strata = "FULLSCREEN_DIALOG",
         frameLevel = 1000,
         clamped = true,
         showCloseButton = false,
         movable = true,
+        savePosition = true,
         closableWithEscape = false,
         borderColor = styles.colors.border,
         backgroundColor = styles.colors.background,
         borderInset = 2
     })
-    dialog:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 0)
     dialog:EnableMouse(true)
     dialog:Hide()
 
     -- Register with UISpecialFrames so Escape key dismisses it cleanly
     if not tContains(_G.UISpecialFrames, dialog:GetName()) then
         table.insert(_G.UISpecialFrames, dialog:GetName() or "AscensionFactoryColorPickerDialog")
-    end
-
-    -- Draggable functionality
-    if lib.UX and lib.UX.makeDraggable then
-        lib.UX:makeDraggable(dialog)
     end
 
     -- Header Title
@@ -150,9 +134,11 @@ function Context:getOrCreateColorPickerDialog()
 
     -- Close Button (X)
     local closeButton = self:createIconButton({
+        name = "AscensionFactoryColorPickerDialogCloseButton",
         parent = dialog,
         iconType = "close",
         size = 18,
+        tooltip = false,
         point = "TOPRIGHT",
         relativeTo = dialog,
         relativePoint = "TOPRIGHT",
@@ -210,7 +196,7 @@ function Context:getOrCreateColorPickerDialog()
     -- Arrow separator
     local arrowText = dialog:CreateFontString(nil, "ARTWORK", styles.fonts.text or "GameFontHighlight")
     arrowText:SetPoint("LEFT", currentContainer, "RIGHT", 6, 0)
-    arrowText:SetText("→")
+    arrowText:SetText(">")
     arrowText:SetTextColor(unpack(styles.colors.steelHighlight or { 0.5, 0.5, 0.5, 1 }))
 
     -- NEW COLOR BOX
@@ -225,7 +211,7 @@ function Context:getOrCreateColorPickerDialog()
 
     applyCheckerboard(newContainer, 38, 20, 5)
 
-    local newColorTex = newContainer:CreateTexture(nil, "ARTWORK", nil, 1)
+    local newColorTex = newContainer:CreateTexture(nil, "OVERLAY", nil, 1)
     newColorTex:SetPoint("TOPLEFT", newContainer, "TOPLEFT", 1, -1)
     newColorTex:SetPoint("BOTTOMRIGHT", newContainer, "BOTTOMRIGHT", -1, 1)
     newColorTex:SetColorTexture(1, 1, 1, 1)
@@ -233,14 +219,16 @@ function Context:getOrCreateColorPickerDialog()
 
     -- INLINE HEX INPUT FIELD
     local hexLabel = dialog:CreateFontString(nil, "ARTWORK", styles.fonts.text or "GameFontNormalSmall")
-    hexLabel:SetPoint("LEFT", newContainer, "RIGHT", 12, 0)
+    hexLabel:SetPoint("LEFT", newContainer, "RIGHT", 10, 0)
     hexLabel:SetText("HEX #")
     hexLabel:SetTextColor(unpack(styles.colors.primaryHover or styles.colors.primary))
 
     local hexInput = self:createInputField({
+        name = "AscensionFactoryColorPickerDialogHexInput",
         parent = dialog,
         width = 82,
         height = 22,
+        tooltip = false,
         placeholder = "RRGGBB",
         point = "LEFT",
         relativeTo = hexLabel,
@@ -323,55 +311,59 @@ function Context:getOrCreateColorPickerDialog()
     end
 
     for idx, ch in ipairs(channels) do
-        local rowY = slidersStartY - ((idx - 1) * sliderSpacingY)
+    local rowY = slidersStartY - ((idx - 1) * sliderSpacingY)
 
-        local channelLabel = dialog:CreateFontString(nil, "ARTWORK", styles.fonts.label or "GameFontNormalSmall")
-        channelLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 12, rowY)
-        channelLabel:SetText(ch.label)
-        channelLabel:SetTextColor(unpack(ch.color))
-        channelLabel:SetWidth(14)
-        channelLabel:SetJustifyH("LEFT")
+    local channelLabel = dialog:CreateFontString(nil, "ARTWORK", styles.fonts.label or "GameFontNormalSmall")
+    channelLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 12, rowY)
+    channelLabel:SetText(ch.label)
+    channelLabel:SetTextColor(unpack(ch.color))
+    channelLabel:SetWidth(18)
+    channelLabel:SetJustifyH("LEFT")
 
-        local valLabel = dialog:CreateFontString(nil, "ARTWORK", styles.fonts.text or "GameFontHighlightSmall")
-        valLabel:SetPoint("TOPRIGHT", dialog, "TOPRIGHT", -12, rowY)
-        valLabel:SetText(tostring(ch.max))
-        valLabel:SetTextColor(unpack(styles.colors.white))
-        valLabel:SetWidth(36)
-        valLabel:SetJustifyH("RIGHT")
+    local valLabel = dialog:CreateFontString(nil, "ARTWORK", styles.fonts.text or "GameFontHighlightSmall")
+    valLabel:SetPoint("TOPRIGHT", dialog, "TOPRIGHT", -12, rowY)
+    valLabel:SetText(tostring(ch.max))
+    valLabel:SetTextColor(unpack(styles.colors.white))
+    valLabel:SetWidth(42)
+    valLabel:SetJustifyH("RIGHT")
 
-        local slider = self:createSlider({
-            parent = dialog,
-            orientation = "HORIZONTAL",
-            length = sliderLength,
-            height = 10,
-            minValue = 0,
-            maxValue = ch.max,
-            step = 1,
-            value = ch.max,
-            thumbShape = "capsule",
-            point = "LEFT",
-            relativeTo = channelLabel,
-            relativePoint = "RIGHT",
-            xOffset = 4,
-            yOffset = 0,
-            onValueChanged = function(_, val, isUserInput)
-                dialog.sliders[ch.key].value = val
-                if ch.key == "a" then
-                    valLabel:SetText(math.floor(val) .. "%")
-                else
-                    valLabel:SetText(tostring(math.floor(val)))
-                end
-                updateDialogState(ch.key)
+    local slider = self:createSlider({
+        name = "AscensionFactoryColorPickerDialogSlider" .. ch.key:upper(),
+        parent = dialog,
+        orientation = "HORIZONTAL",
+        tooltip = false,
+        length = sliderLength - 6,
+        height = 10,
+        minValue = 0,
+        maxValue = ch.max,
+        step = 1,
+        value = ch.max,
+        thumbShape = "capsule",
+        point = "LEFT",
+        relativeTo = channelLabel,
+        relativePoint = "RIGHT",
+        xOffset = 2,
+        yOffset = 0,
+        onValueChanged = function(_, val, isUserInput)
+            dialog.sliders[ch.key].value = val
+            if ch.key == "a" then
+                valLabel:SetText(math.floor(val) .. "%")
+            else
+                valLabel:SetText(tostring(math.floor(val)))
             end
-        })
+            updateDialogState(ch.key)
+        end
+    })
 
-        dialog.sliders[ch.key] = {
-            slider = slider,
-            valLabel = valLabel,
-            max = ch.max,
-            value = ch.max
-        }
-    end
+    dialog.sliders[ch.key] = {
+        slider = slider,
+        label = channelLabel,
+        valLabel = valLabel,
+        max = ch.max,
+        value = ch.max
+    }
+end
+
 
     -- 3.4 RECENT COLORS HISTORY ROW (8 Slots)
     local recentHeader = dialog:CreateFontString(nil, "ARTWORK", styles.fonts.text or "GameFontHighlightSmall")
@@ -380,21 +372,22 @@ function Context:getOrCreateColorPickerDialog()
     recentHeader:SetTextColor(unpack(styles.colors.steelHighlight or { 0.6, 0.6, 0.6, 1 }))
 
     dialog.recentSwatches = {}
-    local slotWidth = 28
-    local slotHeight = 14
-    local slotSpacing = 4
+    -- Dimensiones de los swatches recientes (más elegantes y cuadrados)
+    local slotWidth = 24
+    local slotHeight = 18
+    local slotSpacing = 6
+    local totalSwatchesWidth = (8 * slotWidth) + (7 * slotSpacing) -- 234px
+    local swatchStartX = math.floor((dialogWidth - totalSwatchesWidth) / 2)
 
     for i = 1, 8 do
         local slotBtn = CreateFrame("Button", nil, dialog)
         slotBtn:SetSize(slotWidth, slotHeight)
-        slotBtn:SetPoint("TOPLEFT", dialog, "TOPLEFT", 12 + ((i - 1) * (slotWidth + slotSpacing)), -160)
+        slotBtn:SetPoint("TOPLEFT", dialog, "TOPLEFT", swatchStartX + ((i - 1) * (slotWidth + slotSpacing)), -162)
 
         local slotBorder = slotBtn:CreateTexture(nil, "BORDER", nil, 1)
         slotBorder:SetAllPoints()
         slotBorder:SetColorTexture(unpack(styles.colors.border))
         slotBtn.border = slotBorder
-
-        applyCheckerboard(slotBtn, slotWidth - 2, slotHeight - 2, 4)
 
         local slotColorTex = slotBtn:CreateTexture(nil, "ARTWORK", nil, 1)
         slotColorTex:SetPoint("TOPLEFT", slotBtn, "TOPLEFT", 1, -1)
@@ -402,7 +395,7 @@ function Context:getOrCreateColorPickerDialog()
         slotBtn.colorTex = slotColorTex
 
         slotBtn:SetScript("OnEnter", function()
-            slotBorder:SetColorTexture(unpack(styles.colors.primaryHover or { 1, 0.5, 0, 1 }))
+            slotBorder:SetColorTexture(unpack(styles.colors.primaryHover or { 0.93, 0.73, 0.12, 1.00 })) -- #EDBA1F
         end)
         slotBtn:SetScript("OnLeave", function()
             slotBorder:SetColorTexture(unpack(styles.colors.border))
@@ -415,6 +408,7 @@ function Context:getOrCreateColorPickerDialog()
 
         dialog.recentSwatches[i] = slotBtn
     end
+
 
     --- Refreshes the recent swatches row from lib.recentColors
     local function refreshRecentSwatches()
@@ -448,8 +442,10 @@ function Context:getOrCreateColorPickerDialog()
 
     -- 3.5 ACTION BUTTONS: ACCEPT AND CANCEL (Reusing 05Button.lua)
     local acceptButton = self:createButton({
+        name = "AscensionFactoryColorPickerDialogAcceptButton",
         parent = dialog,
         text = "Accept",
+        tooltip = false,
         width = 124,
         height = 22,
         point = "BOTTOMLEFT",
@@ -470,8 +466,10 @@ function Context:getOrCreateColorPickerDialog()
     dialog.acceptButton = acceptButton
 
     local cancelButton = self:createButton({
+        name = "AscensionFactoryColorPickerDialogCancelButton",
         parent = dialog,
         text = "Cancel",
+        tooltip = false,
         width = 124,
         height = 22,
         point = "BOTTOMRIGHT",
@@ -522,11 +520,35 @@ function Context:getOrCreateColorPickerDialog()
         local r, g, b, a = target:getColor()
         self.originalColor = { r, g, b, a }
 
-        self.currentBoxColor:SetColorTexture(r, g, b, a)
+        local supportsAlpha = target.hasAlpha ~= false
+        if self.sliders.a then
+            if supportsAlpha then
+                if self.sliders.a.slider then self.sliders.a.slider:Show() end
+                if self.sliders.a.label then self.sliders.a.label:Show() end
+                if self.sliders.a.valLabel then self.sliders.a.valLabel:Show() end
+                self:SetHeight(235)
+                recentHeader:SetPoint("TOPLEFT", dialog, "TOPLEFT", 12, -145)
+            else
+                if self.sliders.a.slider then self.sliders.a.slider:Hide() end
+                if self.sliders.a.label then self.sliders.a.label:Hide() end
+                if self.sliders.a.valLabel then self.sliders.a.valLabel:Hide() end
+                self:SetHeight(215)
+                recentHeader:SetPoint("TOPLEFT", dialog, "TOPLEFT", 12, -125)
+            end
+        end
+
+        local swatchY = supportsAlpha and -162 or -142
+        for i, slotBtn in ipairs(self.recentSwatches) do
+            slotBtn:SetPoint("TOPLEFT", dialog, "TOPLEFT", swatchStartX + ((i - 1) * (slotWidth + slotSpacing)), swatchY)
+        end
+
+        self.currentBoxColor:SetColorTexture(r, g, b, supportsAlpha and a or 1)
         refreshRecentSwatches()
-        self:loadColor(r, g, b, a)
+        self:loadColor(r, g, b, supportsAlpha and a or 1)
         self:Show()
     end
+
+
 
     function dialog:acceptAndClose()
         if self.activeTarget and self.workingColor then
@@ -561,17 +583,26 @@ end
 --- @param options table|nil Configuration table for initial color, label text, and callbacks.
 --- @return table colorPicker The configured color picker trigger button widget.
 function Context:createColorPicker(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for createColorPicker")
+    assert(options.parent, "options.parent is required for createColorPicker")
+    assert(options.name, "options.name is required for createColorPicker")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local uiContext = self
     local styles = self.styles or lib.DefaultStyles
+    local parent = options.parent
     local text = options.text or ""
     local hasAlpha = options.hasAlpha ~= false
+    local swatchSize = options.swatchSize or options.boxSize or options.size or 24
+    local rowHeight = options.height or swatchSize
+    local isFlexRow = options.flexRow or false
 
-    -- 4.1 INHERIT BASE BUTTON
+    -- 4.1 INHERIT BASE BUTTON (Clean row like Checkbox/Toggle)
     local btnOptions = {}
     for k, v in pairs(options) do
         btnOptions[k] = v
     end
+    btnOptions.width = options.width or swatchSize
+    btnOptions.height = rowHeight
     btnOptions.borderColors = btnOptions.borderColors or {
         normal = styles.colors.border,
         hover = styles.colors.primaryHover,
@@ -580,8 +611,7 @@ function Context:createColorPicker(options)
     }
 
     local colorPicker = self:createButton(btnOptions)
-    local buttonHeight = colorPicker:GetHeight() or 26
-    local swatchSize = options.swatchSize or options.boxSize or (buttonHeight - 4)
+    colorPicker.isFlexRow = isFlexRow
 
     -- Initial color resolution
     local curR, curG, curB, curA = 1, 1, 1, 1
@@ -592,21 +622,51 @@ function Context:createColorPicker(options)
     end
     colorPicker.currentColor = { curR, curG, curB, curA }
 
-    -- 4.2 SWATCH CONTAINER WITH CHECKERBOARD UNDERLAY
-    local swatchWrap = CreateFrame("Frame", nil, colorPicker)
-    swatchWrap:SetSize(swatchSize, swatchSize)
-    swatchWrap:SetPoint("LEFT", colorPicker, "LEFT", 4, 0)
-    
-    local swatchBorder = swatchWrap:CreateTexture(nil, "BORDER", nil, 1)
-    swatchBorder:SetAllPoints()
-    swatchBorder:SetColorTexture(unpack(styles.colors.border))
+    -- 4.2 24x24 SQUARE SWATCH BUTTON & BOX GEOMETRY RE-ANCHORING
+    local point = options.point or options.anchorPoint or "TOPLEFT"
+    local yOffset = options.yOffset or 0
+    local targetParent = options.relativeTo or parent or _G.UIParent
+    local rightOffset = options.fluidRightOffset or options.rightOffset or -10
+
+    -- Confine the inherited button border & track strictly to the 24x24 square swatch
+    local swatchBorder = colorPicker.border
+    swatchBorder:ClearAllPoints()
+    if isFlexRow then
+        if string.find(point, "TOP") then
+            colorPicker:SetPoint("TOPRIGHT", targetParent, "TOPRIGHT", rightOffset, yOffset)
+        elseif string.find(point, "BOTTOM") then
+            colorPicker:SetPoint("BOTTOMRIGHT", targetParent, "BOTTOMRIGHT", rightOffset, yOffset)
+        else
+            colorPicker:SetPoint("RIGHT", targetParent, "RIGHT", rightOffset, yOffset)
+        end
+        swatchBorder:SetPoint("RIGHT", colorPicker, "RIGHT", 0, 0)
+    else
+        swatchBorder:SetPoint("LEFT", colorPicker, "LEFT", 0, 0)
+    end
+    swatchBorder:SetSize(swatchSize, swatchSize)
+    swatchBorder:Show()
     colorPicker.swatchBorder = swatchBorder
 
-    applyCheckerboard(swatchWrap, swatchSize - 2, swatchSize - 2, 4)
+    local swatchTrack = colorPicker.track
+    swatchTrack:ClearAllPoints()
+    swatchTrack:SetPoint("TOPLEFT", swatchBorder, "TOPLEFT", 1, -1)
+    swatchTrack:SetSize(swatchSize - 2, swatchSize - 2)
+    swatchTrack:Show()
+    colorPicker.swatchTrack = swatchTrack
 
-    local swatchColorTex = swatchWrap:CreateTexture(nil, "ARTWORK", nil, 1)
-    swatchColorTex:SetPoint("TOPLEFT", swatchWrap, "TOPLEFT", 1, -1)
-    swatchColorTex:SetPoint("BOTTOMRIGHT", swatchWrap, "BOTTOMRIGHT", -1, 1)
+    -- Create the 24x24 square swatch button element inside the colorPicker if missing
+    local swatchButton = colorPicker.swatchButton or CreateFrame("Button", options.name .. "SwatchButton", colorPicker)
+    swatchButton:SetSize(swatchSize, swatchSize)
+    swatchButton:ClearAllPoints()
+    swatchButton:SetAllPoints(swatchBorder)
+    colorPicker.swatchButton = swatchButton
+    colorPicker.swatchWrap = swatchButton
+
+    applyCheckerboard(swatchButton, swatchSize - 2, swatchSize - 2, 4)
+
+    local swatchColorTex = swatchButton:CreateTexture(nil, "ARTWORK", nil, 1)
+    swatchColorTex:SetPoint("TOPLEFT", swatchButton, "TOPLEFT", 1, -1)
+    swatchColorTex:SetPoint("BOTTOMRIGHT", swatchButton, "BOTTOMRIGHT", -1, 1)
     colorPicker.swatchColor = swatchColorTex
 
     local function updateVisuals()
@@ -621,18 +681,29 @@ function Context:createColorPicker(options)
         colorPicker.label = label
         label:ClearAllPoints()
         label:SetJustifyH("LEFT")
-        label:SetWidth(0)
-        if text ~= "" then
-            label:SetPoint("LEFT", swatchWrap, "RIGHT", 8, 0)
-            label:Show()
-            local labelWidth = label:GetStringWidth() or 0
-            if not options.width then
-                colorPicker:SetWidth(swatchSize + 16 + labelWidth)
+        if isFlexRow then
+            label:SetPoint("LEFT", colorPicker, "LEFT", 0, 0)
+            label:SetPoint("RIGHT", swatchBorder, "LEFT", -8, 0)
+            label:SetWordWrap(true)
+            if text ~= "" then
+                label:Show()
+            else
+                label:Hide()
             end
         else
-            label:Hide()
-            if not options.width then
-                colorPicker:SetWidth(swatchSize + 8)
+            label:SetWidth(0)
+            if text ~= "" then
+                label:SetPoint("LEFT", swatchBorder, "RIGHT", 8, 0)
+                label:Show()
+                local labelWidth = label:GetStringWidth() or 0
+                if not options.width then
+                    colorPicker:SetWidth(swatchSize + 8 + labelWidth)
+                end
+            else
+                label:Hide()
+                if not options.width then
+                    colorPicker:SetWidth(swatchSize)
+                end
             end
         end
     end
@@ -643,6 +714,9 @@ function Context:createColorPicker(options)
         updateVisuals()
         if type(options.onChange) == "function" then
             options.onChange(self.currentColor, r, g, b, a)
+        end
+        if type(options.onColorChanged) == "function" then
+            options.onColorChanged(self.currentColor, r, g, b, a)
         end
     end
 
@@ -655,6 +729,9 @@ function Context:createColorPicker(options)
         if type(options.onChange) == "function" then
             options.onChange(self.currentColor, r, g, b, a)
         end
+        if type(options.onColorChanged) == "function" then
+            options.onColorChanged(self.currentColor, r, g, b, a)
+        end
     end
 
     local function openDialog()
@@ -663,11 +740,22 @@ function Context:createColorPicker(options)
         dialog:openForTarget(colorPicker)
     end
 
-    colorPicker:SetScript("OnClick", function(self, buttonName, down)
+    local function handleClick(self, buttonName, down)
         if options.onClick then
-            options.onClick(self, self.currentColor, buttonName, down)
+            options.onClick(colorPicker, colorPicker.currentColor, buttonName, down)
         end
         openDialog()
+    end
+
+    colorPicker:SetScript("OnClick", handleClick)
+    swatchButton:SetScript("OnClick", handleClick)
+    swatchButton:SetScript("OnEnter", function()
+        local onEnter = colorPicker:GetScript("OnEnter")
+        if onEnter then onEnter(colorPicker) end
+    end)
+    swatchButton:SetScript("OnLeave", function()
+        local onLeave = colorPicker:GetScript("OnLeave")
+        if onLeave then onLeave(colorPicker) end
     end)
 
     -- 4.5 EXTERNAL API METHODS
@@ -695,14 +783,45 @@ function Context:createColorPicker(options)
     function colorPicker:setText(newText)
         if self.label then
             self.label:SetText(newText)
-            self.label:SetWidth(0)
-            local labelWidth = self.label:GetStringWidth() or 0
-            if not options.width then
-                self:SetWidth(swatchSize + 16 + labelWidth)
+            if not self.isFlexRow then
+                self.label:SetWidth(0)
+                local labelWidth = self.label:GetStringWidth() or 0
+                if not options.width then
+                    self:SetWidth(swatchSize + 8 + labelWidth)
+                end
             end
         end
     end
     colorPicker.SetText = colorPicker.setText
+
+    function colorPicker:setFlexRow(enabled)
+        self.isFlexRow = not not enabled
+        if self.isFlexRow then
+            self:ClearAllPoints()
+            local basePoint = options.point or options.anchorPoint or "TOPLEFT"
+            local baseY = options.yOffset or 0
+            local baseX = options.xOffset or 0
+            local tgt = options.relativeTo or parent or _G.UIParent
+            local rOfs = options.fluidRightOffset or options.rightOffset or -10
+            self:SetPoint(basePoint, tgt, options.relativePoint or basePoint or "TOPLEFT", baseX, baseY)
+            if string.find(basePoint, "TOP") then
+                self:SetPoint("TOPRIGHT", tgt, "TOPRIGHT", rOfs, baseY)
+            elseif string.find(basePoint, "BOTTOM") then
+                self:SetPoint("BOTTOMRIGHT", tgt, "BOTTOMRIGHT", rOfs, baseY)
+            else
+                self:SetPoint("RIGHT", tgt, "RIGHT", rOfs, baseY)
+            end
+            self.swatchBorder:ClearAllPoints()
+            self.swatchBorder:SetPoint("RIGHT", self, "RIGHT", 0, 0)
+            if self.label then
+                self.label:ClearAllPoints()
+                self.label:SetPoint("LEFT", self, "LEFT", 0, 0)
+                self.label:SetPoint("RIGHT", self.swatchBorder, "LEFT", -8, 0)
+                self.label:SetWordWrap(true)
+            end
+        end
+    end
+    colorPicker.SetFlexRow = colorPicker.setFlexRow
 
     function colorPicker:openColorPicker()
         openDialog()

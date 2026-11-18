@@ -36,12 +36,15 @@ lib.UX = UX
 --- @param options table Configuration parameters (items array, parent, etc.).
 --- @return table menu The created context menu frame.
 function Context:createContextMenu(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for createContextMenu")
+    assert(options.parent, "options.parent is required for createContextMenu")
+    assert(options.name, "options.name is required for createContextMenu")
+    assert(type(options.items) == "table" and #options.items > 0, "options.items non-empty table is required for createContextMenu")
     local styles = self.styles
     local ux = lib.UX
-    local items = options.items or {}
+    local items = options.items
     local itemHeight = options.itemHeight or 22
-    local minWidth = options.minWidth or 130
+    local minWidth = options.minWidth or 22
     local separatorHeight = 8
 
     -- Calculate total dimensions
@@ -63,7 +66,8 @@ function Context:createContextMenu(options)
 
     -- 2.1 BASE FRAME (REUSING 01FRAME.LUA)
     local menu = self:createFrame({
-        parent = options.parent or _G.UIParent,
+        name = options.name,
+        parent = options.parent,
         width = maxWidth,
         height = math.max(20, totalHeight),
         strata = "TOOLTIP",
@@ -97,7 +101,9 @@ function Context:createContextMenu(options)
             line:SetColorTexture(unpack(styles.colors.border or { 0.078, 0.102, 0.141, 1.0 }))
             currentY = currentY - separatorHeight
         else
+            local itemIndex = #menu + 1
             local btn = self:createButton({
+                name = options.name .. "Item" .. tostring(currentY):gsub("[^%w]", ""),
                 parent = menu,
                 width = maxWidth - 10,
                 height = itemHeight,
@@ -185,6 +191,7 @@ function UX:showContextMenu(parent, items, config)
 
     local uiContext = (parent and parent.uiContext) or lib.Context or lib:createContext()
     local menu = uiContext:createContextMenu({
+        name = "AscensionFactoryActiveContextMenu",
         parent = _G.UIParent,
         items = menuItems
     })
@@ -207,16 +214,23 @@ end
 --- Adds a Lock/Unlock Position toggle item to a context menu items table.
 --- @param items table The menu items array.
 --- @param targetFrame table The frame being locked or unlocked.
---- @param config table Table with a `.locked` boolean property.
+--- @param config table|nil Table with a `.locked` boolean property (defaults to targetFrame.positionStorage).
 function UX:addLockButton(items, targetFrame, config)
+    local pm = lib.PositionManager
+    local storage = config or (targetFrame and targetFrame.positionStorage)
+    if type(storage) == "string" and pm then
+        storage = pm:initPositionStorage(storage)
+    end
+    if not storage then return end
     table.insert(items, {
-        text = config.locked and "Unlock Position" or "Lock Position",
+        text = storage.locked and "Unlock Position" or "Lock Position",
+        tooltip = "",
         func = function()
-            config.locked = not config.locked
+            storage.locked = not storage.locked
             if targetFrame and targetFrame.SetMovable then
-                targetFrame:SetMovable(not config.locked)
+                targetFrame:SetMovable(not storage.locked)
                 if targetFrame.EnableMouse then
-                    targetFrame:EnableMouse(not config.locked)
+                    targetFrame:EnableMouse(not storage.locked)
                 end
             end
         end
@@ -224,20 +238,32 @@ function UX:addLockButton(items, targetFrame, config)
 end
 
 --- Adds a Reset Position action item to a context menu items table.
+--- Delegates coordinate resetting and application to Core/PositionManager.lua.
 --- @param items table The menu items array.
 --- @param targetFrame table The frame to reset.
---- @param config table Table with coordinates (.point, .x, .y).
+--- @param config table|nil Table with coordinates (.point, .x, .y), defaults to targetFrame.positionStorage.
 function UX:addResetPositionButton(items, targetFrame, config)
+    local pm = lib.PositionManager
+    local storage = config or (targetFrame and targetFrame.positionStorage)
+    if type(storage) == "string" and pm then
+        storage = pm:initPositionStorage(storage)
+    end
+    if not storage then return end
     table.insert(items, {
         text = "Reset Position",
+        tooltip = "",
         func = function()
-            config.point = "CENTER"
-            config.relativePoint = "CENTER"
-            config.x = 0
-            config.y = 0
-            if targetFrame then
-                targetFrame:ClearAllPoints()
-                targetFrame:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 0)
+            if pm and pm.resetPosition then
+                pm:resetPosition(targetFrame, storage, storage.defaults)
+            else
+                storage.point = "CENTER"
+                storage.relativePoint = "CENTER"
+                storage.x = 0
+                storage.y = 0
+                if targetFrame then
+                    targetFrame:ClearAllPoints()
+                    targetFrame:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 0)
+                end
             end
         end
     })

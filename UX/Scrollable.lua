@@ -52,10 +52,11 @@ function UX:makeScrollable(container, options)
     local stepSize = options.step or options.stepSize or 32
     local bottomPadding = options.bottomPadding or 16
     local autoHideScrollBar = options.autoHideScrollBar ~= false
+    local contentPaddingLeft = options.contentPaddingLeft or 0
 
     -- 2.1 SCROLLFRAME (VIEWPORT)
     local scrollFrame = CreateFrame("ScrollFrame", nil, container)
-    scrollFrame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+    scrollFrame:SetPoint("TOPLEFT", container, "TOPLEFT", contentPaddingLeft, 0)
     scrollFrame:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -(scrollBarWidth + scrollBarGap), 0)
     scrollFrame:EnableMouseWheel(true)
     scrollFrame:SetClipsChildren(true)
@@ -69,8 +70,10 @@ function UX:makeScrollable(container, options)
     -- 2.3 VERTICAL SCROLLBAR (09SLIDER REUSE)
     local initialLength = math.max(20, container:GetHeight())
     local scrollbar = uiContext:createSlider({
+        name = (container:GetName() or "ScrollContainer") .. "ScrollBar",
         parent = container,
         orientation = "VERTICAL",
+        tooltip = false,
         length = initialLength,
         thickness = scrollBarWidth,
         thumbShape = options.thumbShape or "capsule",
@@ -94,29 +97,42 @@ function UX:makeScrollable(container, options)
 
     -- 2.4 DYNAMIC RANGE CALCULATION
     local function calculateContentHeight()
-        -- 1. Check explicit height if set beyond initial stub
-        local explicitH = contentChild:GetHeight()
+        if contentChild.layoutAccumulatedHeight and contentChild.layoutAccumulatedHeight > 0 then
+            return contentChild.layoutAccumulatedHeight + bottomPadding
+        end
+
         local maxBottom = 0
         local top = contentChild:GetTop()
 
-        -- 2. Measure lowest child position relative to content top
-        if top and contentChild.GetChildren then
-            local children = { contentChild:GetChildren() }
-            for _, child in ipairs(children) do
-                if child:IsShown() and child.GetBottom then
-                    local childBottom = child:GetBottom()
-                    if childBottom then
-                        local diff = top - childBottom
+        -- Measure lowest descendant position recursively relative to content top
+        if top then
+            local function measureFrame(frame)
+                if not frame or not frame.IsShown or not frame:IsShown() then return end
+                if frame ~= contentChild and frame.GetBottom then
+                    local b = frame:GetBottom()
+                    if b and b > 0 then
+                        local diff = top - b
                         if diff > maxBottom then
                             maxBottom = diff
                         end
                     end
                 end
+                if frame.GetChildren then
+                    for _, child in ipairs({ frame:GetChildren() }) do
+                        measureFrame(child)
+                    end
+                end
             end
+            measureFrame(contentChild)
         end
 
-        local calculated = (maxBottom > 0) and (maxBottom + bottomPadding) or 0
-        return math.max(explicitH, calculated)
+        if maxBottom > 0 then
+            return maxBottom + bottomPadding
+        end
+
+        -- Fallback when frame is not yet fully laid out or off-screen
+        local explicitH = contentChild:GetHeight() or 0
+        return explicitH
     end
 
     local function updateScrollRange()
@@ -213,12 +229,53 @@ function UX:makeScrollable(container, options)
         onMouseWheel(delta)
     end)
 
-    -- Attach references and API to container
+    local function scrollToTop()
+        if scrollbar.setValue then
+            scrollbar:setValue(0, false, true)
+        elseif scrollbar.SetValue then
+            scrollbar:SetValue(0)
+        end
+        scrollFrame:SetVerticalScroll(0)
+    end
+
+    local function scrollToBottom()
+        updateScrollRange()
+        local _, maxVal = 0, 0
+        if scrollbar.getMinMaxValues then
+            _, maxVal = scrollbar:getMinMaxValues()
+        elseif scrollbar.GetMinMaxValues then
+            _, maxVal = scrollbar:GetMinMaxValues()
+        end
+        maxVal = maxVal or 0
+        if scrollbar.setValue then
+            scrollbar:setValue(maxVal, false, true)
+        elseif scrollbar.SetValue then
+            scrollbar:SetValue(maxVal)
+        end
+        scrollFrame:SetVerticalScroll(maxVal)
+    end
+
+    local function onContentResized(selfOrHeight, maybeHeight)
+        local newHeight = (type(selfOrHeight) == "number") and selfOrHeight or maybeHeight
+        if type(newHeight) ~= "number" then return end
+        contentChild.layoutAccumulatedHeight = newHeight
+        contentChild:SetHeight(math.max(10, newHeight + bottomPadding))
+        updateScrollRange()
+    end
+
+    -- Attach references and API to container, scrollFrame, and contentChild
     container.scrollFrame = scrollFrame
     container.content = contentChild
     container.contentChild = contentChild
     container.scrollbar = scrollbar
     container.updateScrollRange = updateScrollRange
+    container.scrollToTop = scrollToTop
+    container.scrollToBottom = scrollToBottom
+    container.onContentResized = onContentResized
+
+    scrollFrame.updateScrollRange = updateScrollRange
+    contentChild.updateScrollRange = updateScrollRange
+    contentChild.onContentResized = onContentResized
 
     -- Initial layout update on show
     container:HookScript("OnShow", function()

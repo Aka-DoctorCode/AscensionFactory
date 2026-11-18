@@ -69,7 +69,11 @@ lib.defaultStyles = lib.defaultStyles or lib.DefaultStyles or {
         edge       = "Interface\\Tooltips\\UI-Tooltip-Border",
         arrow      = "Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up",
         spark      = "Interface\\CastingBar\\UI-CastingBar-Spark",
-    }
+    },
+    spacing = {
+        gap = 10,
+    },
+    defaultGap = 10,
 }
 lib.DefaultStyles = lib.defaultStyles
 

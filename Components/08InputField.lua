@@ -32,9 +32,12 @@ if not Context then return end
 -- editBox (table): The native WoW EditBox widget capturing keystrokes.
 -------------------------------------------------------------------------------
 function Context:createInputField(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for createInputField")
+    assert(options.parent, "options.parent is required for createInputField")
+    assert(options.name, "options.name is required for createInputField")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local styles = self.styles
-    local parent = options.parent or UIParent
+    local parent = options.parent
 
     -- 2.1 MANDATORY VALIDATION (Explicit sizing or fluid width)
     if not options.width and not options.fluidWidth then
@@ -60,10 +63,11 @@ function Context:createInputField(options)
     container:SetClipsChildren(true)
     container.fluidWidth = isFluid
     container.fluidRightOffset = options.fluidRightOffset or options.rightOffset
+    container.clampToContainer = (options.clampToContainer ~= false)
+    container._baseWidth = nil
+    container._baseHeight = height
 
-    if options.name then
-        _G[options.name] = container
-    end
+    _G[options.name] = container
 
     local point = options.point or options.anchorPoint or "TOPLEFT"
     local yOffset = options.yOffset or 0
@@ -74,7 +78,7 @@ function Context:createInputField(options)
         container:SetPoint(
             point,
             targetParent,
-            options.relativePoint or point,
+            options.relativePoint or point or "TOPLEFT",
             options.xOffset or 0,
             yOffset
         )
@@ -144,7 +148,8 @@ function Context:createInputField(options)
         editBox:SetMultiLine(true)
         scrollFrame:SetScrollChild(editBox)
 
-        if isFluid and container.HookScript then
+        if container.HookScript and not container._hasInputSizeChangedHook then
+            container._hasInputSizeChangedHook = true
             container:HookScript("OnSizeChanged", function(self, newWidth, newHeight)
                 if self.editBox and newWidth and newWidth > 0 then
                     local dynamicBoxWidth = math.max(10, newWidth - 16 + (rightPadding + 8))
@@ -206,13 +211,49 @@ function Context:createInputField(options)
         placeholder:SetPoint("RIGHT", container, "RIGHT", rightPadding, 0)
         placeholder:SetJustifyH("LEFT")
         placeholder:SetJustifyV("TOP")
+        placeholder:SetWordWrap(true)
+        placeholder:SetHeight(0)
     else
         placeholder:SetPoint("LEFT", container, "LEFT", 8, 0)
+        placeholder:SetPoint("RIGHT", container, "RIGHT", rightPadding, 0)
         placeholder:SetJustifyH("LEFT")
         placeholder:SetJustifyV("MIDDLE")
+        placeholder:SetWordWrap(true)
+        placeholder:SetHeight(0)
     end
     local placeholderText = options.placeholder or ""
     placeholder:SetText(placeholderText)
+
+    if not isMultiLine and container.HookScript and not container._hasSingleLineSizeHook then
+        container._hasSingleLineSizeHook = true
+        local function syncPlaceholderHeight(target)
+            if not target.placeholder or not target._baseHeight then return end
+            local pText = target.placeholder:GetText()
+            local pH = (pText and pText ~= "" and target.placeholder.GetStringHeight and target.placeholder:GetStringHeight()) or 0
+            local targetH = math.max(target._baseHeight, math.ceil(pH + 10))
+            local curH = (target.GetHeight and target:GetHeight()) or 0
+            if math.abs(curH - targetH) > 0.5 then
+                target:SetHeight(targetH)
+                if target.editBox then
+                    target.editBox:SetHeight(math.max(10, targetH - 4))
+                end
+                if target._parentLayout and target._parentLayout.onChildResized then
+                    target._parentLayout:onChildResized(target, targetH)
+                end
+            end
+        end
+        container:HookScript("OnSizeChanged", function(self)
+            syncPlaceholderHeight(self)
+            if C_Timer and C_Timer.After and not self._pendingInputHeightTimer then
+                self._pendingInputHeightTimer = true
+                local captured = self
+                C_Timer.After(0, function()
+                    captured._pendingInputHeightTimer = nil
+                    syncPlaceholderHeight(captured)
+                end)
+            end
+        end)
+    end
 
     local function updatePlaceholderVisibility()
         local currentText = editBox:GetText()
@@ -228,9 +269,11 @@ function Context:createInputField(options)
     if showClear then
         if not clearButton then
             clearButton = self:createIconButton({
+                name = (options.name or "InputField") .. "ClearBtn",
                 parent = container,
                 iconType = "close",
                 size = 18,
+                tooltip = false,
                 point = "RIGHT",
                 relativeTo = container,
                 relativePoint = "RIGHT",
@@ -300,9 +343,11 @@ function Context:createInputField(options)
         local scrollbar = container.scrollbar
         if not scrollbar then
             scrollbar = self:createSlider({
+                name = (options.name or "InputField") .. "ScrollBar",
                 parent = container,
                 orientation = "VERTICAL",
                 length = height - 4,
+                tooltip = false,
                 width = 12,
                 point = "RIGHT",
                 relativeTo = container,

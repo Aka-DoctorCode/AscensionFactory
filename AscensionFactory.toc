@@ -3,7 +3,7 @@
 ## Notes: A library of UI/UX components for creating addons.
 ## Author: Aka-DoctorCode
 ## Category: Utility
-## Version: V01
+## Version: @project-version@
 ## IconTexture: Interface\AddOns\AscensionFactory\Media\AkaDoctorCode.png
 ## RequiredDeps: AscensionSuit
 ## X-Curse-Project-ID: 1771070
@@ -12,15 +12,19 @@
 Core/Core.lua
 Core/Context.lua
 Core/FrameworkPool.lua
-Core/LayoutModel.lua
+Core/PositionManager.lua
 UX/ClickOutside.lua
 UX/Hoverable.lua
 UX/Closable.lua
 UX/Draggable.lua
 UX/Resizable.lua
+UX/Responsive.lua
+UX/Scrollable.lua
+Core/LayoutModel.lua
 Components/01Frame.lua
 Components/02TabbedInterface.lua
 Components/03TwoColumn.lua
+Components/03ColumnGroup.lua
 Components/04Text.lua
 Components/05Button.lua
 Components/06Toggle.lua
@@ -28,11 +32,12 @@ Components/07Checkbox.lua
 Components/08InputField.lua
 Components/09Slider.lua
 Components/10Stepper.lua
-UX/Scrollable.lua
 Components/11Tooltip.lua
 Components/12Dropdown.lua
 Components/13ContextMenu.lua
 Components/14Toast.lua
 Components/15ColorPicker.lua
+Components/16Accordion.lua
+Core/LayoutBuilder.lua
 Integration/BlizzardOptions.lua
 ExampleUI.lua

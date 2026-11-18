@@ -72,8 +72,10 @@ function Integration:registerBlizzardPanel(addonName, displayName, openConfigCal
         local openBtn
         if uiContext and uiContext.createDialogButton then
             openBtn = uiContext:createDialogButton({
+                name = addonName .. "BlizzardOptionsOpenButton",
                 parent = blizzardPanel,
                 variant = "accept",
+                tooltip = false,
                 text = "OPEN SETTINGS",
                 width = 240,
                 height = 36,

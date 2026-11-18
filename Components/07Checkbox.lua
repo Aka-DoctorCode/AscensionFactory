@@ -32,6 +32,10 @@ if not Context then return end
 -- updateAppearance (function): Centralized visual state updater.
 -------------------------------------------------------------------------------
 function Context:createCheckbox(options)
+    assert(type(options) == "table", "options table required for createCheckbox")
+    assert(options.parent, "options.parent is required for createCheckbox")
+    assert(options.name, "options.name is required for createCheckbox")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local styles = self.styles
     local text = options.text or ""
 
@@ -59,6 +63,9 @@ function Context:createCheckbox(options)
     for key, value in pairs(options) do
         buttonOptions[key] = value
     end
+    local boxSize = options.boxSize or options.size or 24
+    buttonOptions.height = options.height or boxSize
+    buttonOptions.width = options.width or (boxSize + 8 + (text ~= "" and 200 or 0))
     buttonOptions.borderColors = buttonOptions.borderColors or {
         normal = styles.colors.border,
         hover = styles.colors.primaryHover,
@@ -72,7 +79,7 @@ function Context:createCheckbox(options)
     checkbox = self:createButton(buttonOptions)
 
     local buttonHeight = checkbox:GetHeight()
-    local boxSize = options.boxSize or options.size or buttonHeight
+    boxSize = options.boxSize or options.size or buttonHeight
 
     -- State initialization
     checkbox.isChecked = false
@@ -249,7 +256,7 @@ function Context:createCheckbox(options)
             local baseX = options.xOffset or 0
             local tgt = options.relativeTo or parent or UIParent
             local rOfs = options.fluidRightOffset or options.rightOffset or -10
-            self:SetPoint(basePoint, tgt, options.relativePoint or basePoint, baseX, baseY)
+            self:SetPoint(basePoint, tgt, options.relativePoint or basePoint or "TOPLEFT", baseX, baseY)
             if string.find(basePoint, "TOP") then
                 self:SetPoint("TOPRIGHT", tgt, "TOPRIGHT", rOfs, baseY)
             elseif string.find(basePoint, "BOTTOM") then

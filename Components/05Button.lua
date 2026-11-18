@@ -31,10 +31,19 @@ if not Context then return end
 -- updateAppearance (function): Centralized engine that changes texture colors based on the interaction state.
 -------------------------------------------------------------------------------
 function Context:createButton(options)
+    assert(type(options) == "table", "options table required for createButton")
+    assert(options.parent, "options.parent is required for createButton")
+    assert(options.name, "options.name is required for createButton")
+    local isFluid = options.fluidWidth or false
+    if type(options.width) ~= "number" and not isFluid then
+        error("AscensionFactory: createButton requires explicit 'width' (or 'fluidWidth = true')", 2)
+    end
+    assert(type(options.height) == "number", "options.height is required and must be a number")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local styles = self.styles
-    local parent = options.parent or UIParent
-    local width = options.width or 60
-    local height = options.height or 25
+    local parent = options.parent
+    local width = options.width or 100
+    local height = options.height
     
     -- 2.1 BASE FRAME SETUP
     -- Acquire base "Button" frame from pool. The WoW Button object can receive click and mouseover events.
@@ -42,22 +51,42 @@ function Context:createButton(options)
         width = width,
         height = height
     })
+    button.fluidWidth = isFluid
+    button.fluidRightOffset = options.fluidRightOffset or options.rightOffset
+    button.clampToContainer = (options.clampToContainer ~= false)
+    button._baseWidth = nil
+    button._baseHeight = height
+    button._customLabelAnchors = nil
+    button._managedByLayout = nil
 
-    -- Register the element in global space if a name is specified.
+    -- Register the element in global space.
     -- By setting _G[name], the frame is globally accessible via that variable.
-    if options.name then
-        _G[options.name] = button
-    end
+    _G[options.name] = button
+
+    local point = options.point or options.anchorPoint or "TOPLEFT"
+    local yOffset = options.yOffset or 0
+    local targetParent = options.relativeTo or parent
 
     if options.point or options.anchorPoint or options.xOffset or options.yOffset then
         button:ClearAllPoints()
         button:SetPoint(
-            options.point or options.anchorPoint or "TOPLEFT",
-            options.relativeTo or parent,
-            options.relativePoint or options.point or options.anchorPoint or "TOPLEFT",
+            point,
+            targetParent,
+            options.relativePoint or point,
             options.xOffset or 0,
-            options.yOffset or 0
+            yOffset
         )
+    end
+
+    if isFluid then
+        local rightOffset = options.fluidRightOffset or options.rightOffset or -10
+        if string.find(point, "TOP") then
+            button:SetPoint("TOPRIGHT", targetParent, "TOPRIGHT", rightOffset, yOffset)
+        elseif string.find(point, "BOTTOM") then
+            button:SetPoint("BOTTOMRIGHT", targetParent, "BOTTOMRIGHT", rightOffset, yOffset)
+        else
+            button:SetPoint("RIGHT", targetParent, "RIGHT", rightOffset, yOffset)
+        end
     end
     
     -- 2.2 EXPLICIT LAYER TEXTURE CREATION
@@ -101,12 +130,15 @@ function Context:createButton(options)
 
     -- 2.3 TEXT LABEL SETUP
     local buttonText = self:createLabel({
+        name = (options.name or "Button") .. "Label",
         parent = button,
         text = options.text or ""
     })
+    buttonText:ClearAllPoints()
     buttonText:SetPoint("CENTER", button, "CENTER", 0, 0)
-    buttonText:SetWidth(width - 10)
-    buttonText:SetWordWrap(false)
+    buttonText:SetWidth(math.max(10, width - 10))
+    buttonText:SetHeight(0)
+    buttonText:SetWordWrap(options.wordWrap ~= false)
     button:SetFontString(buttonText)
 
     -- 2.4 INTERACTIVE HOVER SETUP
@@ -136,8 +168,81 @@ function Context:createButton(options)
 
     -- 2.7 INSTANCE PROPERTIES & ALIASES
     button.label = buttonText
-    button.setText = function(self, text) self:SetText(text) end
+
+    local function applyButtonHeightSync(target)
+        if not target.label or target.clampToContainer == false or not target._baseHeight then return end
+        local text = target.label.GetText and target.label:GetText()
+        local textH = (text and text ~= "" and target.label.GetStringHeight and target.label:GetStringHeight()) or 0
+        local targetH = math.max(target._baseHeight, math.ceil(textH + 10))
+        local curH = (target.GetHeight and target:GetHeight()) or 0
+        if math.abs(curH - targetH) > 0.5 then
+            target:SetHeight(targetH)
+            if target._parentLayout and target._parentLayout.onChildResized then
+                target._parentLayout:onChildResized(target, targetH)
+            end
+        end
+    end
+
+    button._syncButtonDimensions = function(self, newWidth)
+        if not self.label then return end
+        local w = newWidth or (self.GetWidth and self:GetWidth()) or 0
+        if not self._customLabelAnchors and w > 0 then
+            self.label:SetWidth(math.max(10, w - 10))
+        end
+        applyButtonHeightSync(self)
+        if C_Timer and C_Timer.After and not self._pendingButtonHeightTimer then
+            self._pendingButtonHeightTimer = true
+            local captured = self
+            C_Timer.After(0, function()
+                captured._pendingButtonHeightTimer = nil
+                applyButtonHeightSync(captured)
+            end)
+        end
+    end
+
+    button.setText = function(self, text)
+        self:SetText(text)
+        if self._syncButtonDimensions then
+            self:_syncButtonDimensions()
+        end
+    end
     button.getText = function(self) return self:GetText() end
+
+    -- Keep label width and button height synchronized whenever the button is resized
+    if button.HookScript and not button._hasButtonSizeChangedHook then
+        button._hasButtonSizeChangedHook = true
+        button:HookScript("OnSizeChanged", function(self, newWidth)
+            if self._syncButtonDimensions then
+                self:_syncButtonDimensions(newWidth)
+            end
+        end)
+    end
+
+    button:_syncButtonDimensions(width)
+
+    -- Standalone container clamping when created directly with uiContext:createButton outside LayoutModel
+    if not isFluid and button.clampToContainer and not options._autoAnchored and targetParent and targetParent ~= _G.UIParent and targetParent.HookScript then
+        local leftPad = math.abs(options.xOffset or 0)
+        local rightPad = math.abs(options.fluidRightOffset or options.rightOffset or options.xOffset or 10)
+        local totalPad = leftPad + rightPad
+        button._standaloneBaseWidth = width
+        button._standaloneClampTarget = targetParent
+        local function applyStandaloneClamp(parentW)
+            if button._managedByLayout or button._standaloneClampTarget ~= targetParent then return end
+            local w = parentW or (targetParent.GetWidth and targetParent:GetWidth()) or 0
+            local avail = w - totalPad
+            if avail > 0 and button._standaloneBaseWidth then
+                button:SetWidth(math.min(button._standaloneBaseWidth, avail))
+            end
+        end
+        applyStandaloneClamp()
+        if button._standaloneHookedParent ~= targetParent then
+            button._standaloneHookedParent = targetParent
+            targetParent:HookScript("OnSizeChanged", function(_, newW)
+                applyStandaloneClamp(newW)
+            end)
+        end
+    end
     
     return button
 end
@@ -152,14 +257,21 @@ end
 -- color (table): RGBA color values for the icon drawing.
 -------------------------------------------------------------------------------
 function Context:createIconButton(options)
-    local size = options.size or 24
+    assert(type(options) == "table", "options table required for createIconButton")
+    assert(options.parent, "options.parent is required for createIconButton")
+    assert(options.name, "options.name is required for createIconButton")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
+    assert(options.iconType, "options.iconType is required for createIconButton")
+    assert(type(options.size) == "number", "options.size is required and must be a number")
+    local size = options.size
     options.width = size
     options.height = size
     options.text = ""
 
     -- 3.1 BASE BUTTON INHERITANCE
     local button = self:createButton(options)
-    local iconType = options.iconType or "close"
+    button.clampToContainer = false
+    local iconType = options.iconType
     local color = options.iconColor or self.styles.colors.white
 
     -- 3.2 ICON RENDERING
@@ -269,9 +381,14 @@ end
 -- button (table): Allocated and styled Button instance.
 -------------------------------------------------------------------------------
 function Context:createDialogButton(options)
+    assert(type(options) == "table", "options table required for createDialogButton")
+    assert(options.parent, "options.parent is required for createDialogButton")
+    assert(options.name, "options.name is required for createDialogButton")
+    assert(options.variant or options.buttonType, "options.variant is required for createDialogButton")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local styles = self.styles
-    local parent = options.parent or _G.UIParent
-    local variant = (options.variant or options.buttonType or "neutral"):lower()
+    local parent = options.parent
+    local variant = (options.variant or options.buttonType):lower()
     
     local defaultText = ""
     local customBorderColors = nil
@@ -343,22 +460,6 @@ function Context:createDialogButton(options)
 
     local button = self:createButton(buttonOptions)
 
-    if options.fluidWidth then
-        button.fluidWidth = true
-        button.fluidRightOffset = options.fluidRightOffset or options.rightOffset
-        local point = options.point or options.anchorPoint or "TOPLEFT"
-        local yOffset = options.yOffset or 0
-        local rightOffset = options.fluidRightOffset or options.rightOffset or -10
-        local targetParent = options.relativeTo or parent
-        if string.find(point, "TOP") then
-            button:SetPoint("TOPRIGHT", targetParent, "TOPRIGHT", rightOffset, yOffset)
-        elseif string.find(point, "BOTTOM") then
-            button:SetPoint("BOTTOMRIGHT", targetParent, "BOTTOMRIGHT", rightOffset, yOffset)
-        else
-            button:SetPoint("RIGHT", targetParent, "RIGHT", rightOffset, yOffset)
-        end
-    end
-
     -- Auto-expand button width if text exceeds default padding (unless width was explicitly specified)
     local fontString = button:GetFontString()
     if fontString and not options.width and not options.fluidWidth then
@@ -386,8 +487,10 @@ end
 --- @param options table Configuration parameters (parent, buttons, stackThreshold, gap, etc.).
 --- @return table group Container frame containing the dialog buttons and layout controllers.
 function Context:createDialogButtonGroup(options)
-    options = options or {}
-    local parent = options.parent or UIParent
+    assert(type(options) == "table", "options table required for createDialogButtonGroup")
+    assert(options.parent, "options.parent is required for createDialogButtonGroup")
+    assert(options.name, "options.name is required for createDialogButtonGroup")
+    local parent = options.parent
     local buttonsConfig = options.buttons or {}
     local threshold = options.stackThreshold or options.threshold or 400
     local gap = options.gap or 8
@@ -400,13 +503,11 @@ function Context:createDialogButtonGroup(options)
     })
     group:EnableMouse(false)
 
-    if options.name then
-        _G[options.name] = group
-    end
+    _G[options.name] = group
 
-    local basePoint = options.point or options.anchorPoint or "BOTTOMRIGHT"
+    local basePoint = options.point or options.anchorPoint or "TOPLEFT"
     local baseRelTo = options.relativeTo or parent
-    local baseRelPoint = options.relativePoint or basePoint
+    local baseRelPoint = options.relativePoint or basePoint or "TOPLEFT"
     local baseX = options.xOffset or 0
     local baseY = options.yOffset or 0
 
@@ -417,6 +518,7 @@ function Context:createDialogButtonGroup(options)
     for _, btnCfg in ipairs(buttonsConfig) do
         local btnOptions = {}
         for k, v in pairs(btnCfg) do btnOptions[k] = v end
+        if btnOptions.tooltip == nil then btnOptions.tooltip = false end
         btnOptions.parent = group
         btnOptions.height = buttonHeight
         btnOptions.width = btnCfg.width or buttonWidth
@@ -476,6 +578,10 @@ function Context:createDialogButtonGroup(options)
                 group:ClearAllPoints()
                 group:SetPoint(basePoint, baseRelTo, baseRelPoint, baseX, baseY)
             end
+        end
+
+        if group._parentLayout and group._parentLayout.onChildResized then
+            group._parentLayout:onChildResized(group, group:GetHeight())
         end
 
         if options.onLayoutChange then

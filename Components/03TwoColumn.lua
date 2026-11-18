@@ -31,25 +31,37 @@ if not Context then return end
 -- setBackground (function): Helper to optionally assign colored backgrounds to each column.
 -------------------------------------------------------------------------------
 function Context:createTwoColumns(options)
-    options = options or {}
-    local parent = options.parent or UIParent
+    assert(type(options) == "table", "options table required for createTwoColumns")
+    assert(options.parent, "options.parent is required for createTwoColumns")
+    assert(options.name, "options.name is required for createTwoColumns")
+    local rawParent = options.parent
+    local parent = rawParent
+    if parent and parent.getContent then
+        parent = parent:getContent()
+    elseif parent and parent.scrollChild then
+        parent = parent.scrollChild
+    elseif parent and parent.content then
+        parent = parent.content
+    end
+
     local yOffset = options.yOffset or 0
-    local name = options.name or "TwoColumnLayout"
+    local name = options.name
     local height = options.height
-    local threshold = options.stackThreshold or options.threshold or 480
-    local isResponsive = (options.responsive ~= false)
     local gap = options.gap or 10
     local halfGap = math.floor(gap / 2)
+    local minColWidth = options.minColumnWidth or 240
+    local threshold = options.stackThreshold or options.threshold or (minColWidth * 2 + gap + 20)
+    local isResponsive = (options.responsive ~= false)
 
     -- Create the left side container frame and optionally name it.
     -- "Frame" is the basic empty UI container in WoW.
     -- parent: the frame this column belongs to.
     local leftColumn = self:acquireElement("Frame", parent, {})
-    if name then _G[name .. "Left"] = leftColumn end
+    _G[name .. "Left"] = leftColumn
     
     -- Create the right side container frame and optionally name it.
     local rightColumn = self:acquireElement("Frame", parent, {})
-    if name then _G[name .. "Right"] = rightColumn end
+    _G[name .. "Right"] = rightColumn
 
     -- Helper utility to conditionally create an inner background texture layer.
     local function setBackground(frame, color)
@@ -68,14 +80,19 @@ function Context:createTwoColumns(options)
     setBackground(rightColumn, options.rightBackgroundColor or options.backgroundColor)
 
     local isStacked = false
+    local relativeTo = options.relativeTo
+    local point = options.point or options.anchorPoint or "TOPLEFT"
+    local relativePoint = options.relativePoint or point or "TOPLEFT"
+    local anchorFrame = relativeTo or parent
 
     local function getColumnContentHeight(frame)
         local top = frame:GetTop()
         local maxBottom = 0
-        if top and frame.GetChildren then
-            for _, child in ipairs({ frame:GetChildren() }) do
-                if child:IsShown() and child.GetBottom then
-                    local bottom = child:GetBottom()
+        if top then
+            local function measureFrame(subFrame)
+                if not subFrame or not subFrame.IsShown or not subFrame:IsShown() then return end
+                if subFrame ~= frame and subFrame.GetBottom then
+                    local bottom = subFrame:GetBottom()
                     if bottom then
                         local diff = top - bottom
                         if diff > maxBottom then
@@ -83,7 +100,13 @@ function Context:createTwoColumns(options)
                         end
                     end
                 end
+                if subFrame.GetChildren then
+                    for _, child in ipairs({ subFrame:GetChildren() }) do
+                        measureFrame(child)
+                    end
+                end
             end
+            measureFrame(frame)
         end
         return maxBottom
     end
@@ -96,44 +119,45 @@ function Context:createTwoColumns(options)
         leftColumn:ClearAllPoints()
         rightColumn:ClearAllPoints()
 
+        local xOff = options.xOffset or 5
+
         if shouldStack then
             isStacked = true
             -- Stacked Mode (100% width, vertically stacked)
-            leftColumn:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yOffset)
-            leftColumn:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -5, yOffset)
+            leftColumn:SetPoint(point, anchorFrame, relativePoint, xOff, yOffset)
+            leftColumn:SetPoint("RIGHT", parent, "RIGHT", -xOff, 0)
 
-            if height then
-                leftColumn:SetHeight(height)
-                rightColumn:SetHeight(height)
-                rightColumn:SetPoint("TOPLEFT", leftColumn, "BOTTOMLEFT", 0, -gap)
-                rightColumn:SetPoint("TOPRIGHT", leftColumn, "BOTTOMRIGHT", 0, -gap)
-            else
-                local defaultH = options.stackedColumnHeight or math.max(200, math.floor(((parent and parent.GetHeight and parent:GetHeight()) or 400) * 0.5))
-                local leftContentH = getColumnContentHeight(leftColumn)
-                local rightContentH = getColumnContentHeight(rightColumn)
-                local leftH = (leftContentH > 0) and (leftContentH + 10) or defaultH
-                local rightH = (rightContentH > 0) and (rightContentH + 10) or defaultH
-                leftColumn:SetHeight(leftH)
-                rightColumn:SetHeight(rightH)
-                rightColumn:SetPoint("TOPLEFT", leftColumn, "BOTTOMLEFT", 0, -gap)
-                rightColumn:SetPoint("TOPRIGHT", leftColumn, "BOTTOMRIGHT", 0, -gap)
-            end
+            local leftContentH = getColumnContentHeight(leftColumn)
+            local rightContentH = getColumnContentHeight(rightColumn)
+            local defaultH = height or options.stackedColumnHeight or math.max(100, math.floor(((parent and parent.GetHeight and parent:GetHeight()) or 400) * 0.5))
+            local leftH = math.max(defaultH, (leftContentH > 0) and (leftContentH + 15) or defaultH)
+            local rightH = math.max(defaultH, (rightContentH > 0) and (rightContentH + 15) or defaultH)
+
+            leftColumn:SetHeight(leftH)
+            rightColumn:SetHeight(rightH)
+            rightColumn:SetPoint("TOPLEFT", leftColumn, "BOTTOMLEFT", 0, -gap)
+            rightColumn:SetPoint("RIGHT", parent, "RIGHT", -xOff, 0)
         else
             isStacked = false
             -- Horizontal Mode (50% / 50% split)
-            leftColumn:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yOffset)
-            leftColumn:SetPoint("TOPRIGHT", parent, "TOP", -halfGap, yOffset)
+            local totalW = (parent and parent.GetWidth and parent:GetWidth()) or 0
+            local availW = math.max(20, totalW - (2 * xOff) - gap)
+            local colW = math.floor(availW / 2)
 
-            rightColumn:SetPoint("TOPLEFT", parent, "TOP", halfGap, yOffset)
-            rightColumn:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -5, yOffset)
+            leftColumn:SetPoint(point, anchorFrame, relativePoint, xOff, yOffset)
+            leftColumn:SetWidth(colW)
 
-            if height then
-                leftColumn:SetHeight(height)
-                rightColumn:SetHeight(height)
-            else
-                leftColumn:SetPoint("BOTTOM", parent, "BOTTOM", 0, 0)
-                rightColumn:SetPoint("BOTTOM", parent, "BOTTOM", 0, 0)
-            end
+            rightColumn:SetPoint("TOPLEFT", leftColumn, "TOPRIGHT", gap, 0)
+            rightColumn:SetWidth(colW)
+
+            local leftContentH = getColumnContentHeight(leftColumn)
+            local rightContentH = getColumnContentHeight(rightColumn)
+            local maxContentH = math.max(leftContentH, rightContentH)
+            local defaultH = height or 100
+            local finalH = math.max(defaultH, (maxContentH > 0) and (maxContentH + 15) or defaultH)
+
+            leftColumn:SetHeight(finalH)
+            rightColumn:SetHeight(finalH)
         end
 
         leftColumn.mode = isStacked and "stacked" or "horizontal"
@@ -143,14 +167,12 @@ function Context:createTwoColumns(options)
             options.onLayoutChange(leftColumn, rightColumn, leftColumn.mode, width)
         end
 
-        -- Notify parent / scroll container to recalculate scroll range when mode changes
-        if isStacked ~= wasStacked then
-            if parent then
-                if parent.updateScrollRange then
-                    parent:updateScrollRange()
-                elseif parent.GetParent and parent:GetParent() and parent:GetParent().updateScrollRange then
-                    parent:GetParent():updateScrollRange()
-                end
+        -- Notify parent / scroll container to recalculate scroll range
+        if parent then
+            if parent.updateScrollRange then
+                parent:updateScrollRange()
+            elseif parent.GetParent and parent:GetParent() and parent:GetParent().updateScrollRange then
+                parent:GetParent():updateScrollRange()
             end
         end
     end

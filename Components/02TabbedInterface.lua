@@ -34,7 +34,13 @@ if not Context then return end
 -- activeTab (number): State variable holding the currently selected tab index.
 -------------------------------------------------------------------------------
 function Context:createTabbedInterface(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for createTabbedInterface")
+    assert(options.parent, "options.parent is required for createTabbedInterface")
+    assert(options.name, "options.name is required for createTabbedInterface")
+    assert(type(options.startY) == "number", "options.startY is required and must be a number")
+    assert(type(options.tabs) == "table", "options.tabs is required and must be a table")
+    assert(type(options.sidebarWidth) == "number", "options.sidebarWidth is required and must be a number")
+
     local styles = self.styles
     local parent = options.parent
     local startY = options.startY
@@ -43,14 +49,9 @@ function Context:createTabbedInterface(options)
     local panels = {}
     local activeTab = initialIndex
 
-    local sidebarWidth = options.sidebarWidth or 160
-    local collapsedWidth = options.collapsedWidth or 40
-    local collapseThreshold = options.collapseThreshold or 550
-    local collapsibleSidebar = (options.collapsibleSidebar ~= false)
+    local sidebarWidth = options.sidebarWidth
     local autoScroll = (options.autoScroll ~= false)
-
-    local isCollapsed = false
-    local userToggledManual = false
+    local contentPaddingLeft = options.contentPaddingLeft or options.contentPadding or 4
 
     -------------------------------------------------------------------------------
     -- 2.1. TAB SELECTION LOGIC
@@ -96,8 +97,12 @@ function Context:createTabbedInterface(options)
     -- 2.2 SIDEBAR CONTAINER
     -- Objective: Creates the vertical sidebar container frame for tab navigation.
     -------------------------------------------------------------------------------
-    local sidebar = self:acquireElement("Frame", parent, {})
+    local sidebar = self:acquireElement("Frame", parent, {
+        name = options.name and (options.name .. "Sidebar") or nil
+    })
+    _G[options.name] = sidebar
     sidebar:SetWidth(sidebarWidth)
+    sidebar:SetClipsChildren(true)
     
     sidebar:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, startY)
     sidebar:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 10, 8)    
@@ -120,101 +125,34 @@ function Context:createTabbedInterface(options)
     sidebar.background:SetColorTexture(unpack(styles.colors.surfaceLight))
 
     -------------------------------------------------------------------------------
-    -- 2.3 SIDEBAR COLLAPSE ENGINE & TOGGLE BUTTON
+    -- 2.3 SIDEBAR SCROLL & TAB BUTTON FACTORY
     -------------------------------------------------------------------------------
-    local toggleButton = nil
-
-    local function getMonogram(text)
-        if not text or text == "" then return "" end
-        local chars = {}
-        for uchar in string.gmatch(text, "([%z\1-\127\194-\244][\128-\191]*)") do
-            table.insert(chars, uchar)
-            if #chars >= 2 then break end
-        end
-        return table.concat(chars):upper()
-    end
-
-    local function setCollapsed(collapsed)
-        isCollapsed = collapsed
-        if isCollapsed then
-            sidebar:SetWidth(collapsedWidth)
-            if toggleButton then
-                toggleButton:ClearAllPoints()
-                toggleButton:SetPoint("TOP", sidebar, "TOP", 0, -4)
-                if toggleButton.setIconRotation then
-                    toggleButton:setIconRotation(0) -- Arrow pointing right (expand)
-                end
-                if toggleButton.hoverConfig then
-                    toggleButton.hoverConfig.tooltip = "Expand Sidebar"
-                end
-            end
-            for _, tab in ipairs(tabs) do
-                tab:SetWidth(collapsedWidth)
-                if tab.tabLabel then tab.tabLabel:Hide() end
-                if tab.compactIndicator then tab.compactIndicator:Show() end
-            end
-        else
-            sidebar:SetWidth(sidebarWidth)
-            if toggleButton then
-                toggleButton:ClearAllPoints()
-                toggleButton:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", -4, -4)
-                if toggleButton.setIconRotation then
-                    toggleButton:setIconRotation(180) -- Arrow pointing left (collapse)
-                end
-                if toggleButton.hoverConfig then
-                    toggleButton.hoverConfig.tooltip = "Collapse Sidebar"
-                end
-            end
-            for _, tab in ipairs(tabs) do
-                tab:SetWidth(sidebarWidth)
-                if tab.tabLabel then tab.tabLabel:Show() end
-                if tab.compactIndicator then tab.compactIndicator:Hide() end
-            end
-        end
-
-        for _, p in ipairs(panels) do
-            if p:IsShown() and p.updateScrollRange then
-                p:updateScrollRange()
-            end
-        end
-
-        if options.onSidebarToggle then
-            options.onSidebarToggle(sidebar, isCollapsed)
-        end
-    end
-
-    -------------------------------------------------------------------------------
-    -- 2.4 TAB BUTTON FACTORY
-    -------------------------------------------------------------------------------
-    local layout = self:createLayoutModel(sidebar)
-
-    if collapsibleSidebar and self.createIconButton then
-        toggleButton = self:createIconButton({
-            parent = sidebar,
-            size = 20,
-            iconType = "arrowleft",
-            point = "TOPRIGHT",
-            relativeTo = sidebar,
-            relativePoint = "TOPRIGHT",
-            xOffset = -4,
-            yOffset = -4,
-            tooltip = "Collapse Sidebar",
-            onClick = function()
-                userToggledManual = true
-                setCollapsed(not isCollapsed)
-            end
+    local sidebarContent = sidebar
+    if lib.UX and lib.UX.makeScrollable then
+        local _, sbScrollChild = lib.UX:makeScrollable(sidebar, {
+            uiContext = self,
+            step = options.scrollStep or 30,
+            thumbShape = "capsule",
+            scrollBarWidth = 8,
+            scrollBarGap = 2,
+            bottomPadding = 8,
+            autoHideScrollBar = true,
+            contentPaddingLeft = 0
         })
-        sidebar.toggleButton = toggleButton
-        layout:addSpace(24)
+        if sbScrollChild then
+            sidebarContent = sbScrollChild
+        end
     end
-    
+
+    local layout = self:createLayoutModel(sidebarContent)
+
     local function sidebarButton(btnOptions)
-        local button = self:acquireElement("Button", sidebar, {})
+        local button = self:acquireElement("Button", sidebarContent, {})
         button:SetHeight(22)
-        button:SetWidth(isCollapsed and collapsedWidth or sidebarWidth)
-        
+        button:SetWidth(sidebarWidth)
+
         layout:anchorElement(button)
-        
+
         if not button.background then
             local background = button:CreateTexture(nil, "BACKGROUND", nil, -1)
             background:SetAllPoints(button)
@@ -224,24 +162,43 @@ function Context:createTabbedInterface(options)
 
         -- Standard full text label
         local tabLabel = self:createLabel({
+            name = (options.name or "TabbedInterface") .. "TabLabel" .. btnOptions.index,
             parent = button,
             text = btnOptions.text
         })
+        tabLabel:ClearAllPoints()
         tabLabel:SetPoint("LEFT", button, "LEFT", 10, 0)
+        tabLabel:SetPoint("RIGHT", button, "RIGHT", -6, 0)
+        tabLabel:SetWordWrap(true)
+        tabLabel:SetHeight(0)
         button.tabLabel = tabLabel
         button.tabName = btnOptions.text
 
-        -- Compact Mode Indicator (centered 1-2 letters with UTF-8 support)
-        local compactIndicator = button:CreateFontString(nil, "OVERLAY")
-        local fontPath = options.fontFamily or (GameFontNormal and GameFontNormal.GetFont and select(1, GameFontNormal:GetFont())) or "Fonts\\FRIZQT__.TTF"
-        compactIndicator:SetFont(fontPath, 11)
-        compactIndicator:SetTextColor(unpack(styles.colors.white))
-        compactIndicator:SetShadowColor(unpack(styles.colors.black))
-        compactIndicator:SetShadowOffset(1, -1)
-        compactIndicator:SetPoint("CENTER", button, "CENTER", 4, 0)
-        compactIndicator:SetText(getMonogram(btnOptions.text))
-        compactIndicator:Hide()
-        button.compactIndicator = compactIndicator
+        local function syncSidebarButtonHeight(btn)
+            if not btn.tabLabel then return end
+            local textH = (btn.tabLabel.GetStringHeight and btn.tabLabel:GetStringHeight()) or 0
+            local targetH = math.max(22, math.ceil(textH + 8))
+            local curH = (btn.GetHeight and btn:GetHeight()) or 0
+            if math.abs(curH - targetH) > 0.5 then
+                btn:SetHeight(targetH)
+                if layout and layout.onChildResized then
+                    layout:onChildResized(btn, targetH)
+                end
+            end
+        end
+
+        syncSidebarButtonHeight(button)
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function()
+                syncSidebarButtonHeight(button)
+            end)
+        end
+        if button.HookScript and not button._hasSidebarSizeHook then
+            button._hasSidebarSizeHook = true
+            button:HookScript("OnSizeChanged", function(self)
+                syncSidebarButtonHeight(self)
+            end)
+        end
 
         -- Active 8px accent bar on left edge
         local accent = self:acquireElement("Texture", button, { drawLayer = "OVERLAY" })
@@ -256,9 +213,6 @@ function Context:createTabbedInterface(options)
 
         if lib.UX and lib.UX.makeHoverable then
             lib.UX:makeHoverable(button, {
-                tooltip = function()
-                    return isCollapsed and btnOptions.text or nil
-                end,
                 onStateChange = function(self, state)
                     if activeTab ~= btnOptions.index then
                         if state == "hover" then
@@ -296,7 +250,8 @@ function Context:createTabbedInterface(options)
                 uiContext = self,
                 step = options.scrollStep or 30,
                 thumbShape = "capsule",
-                bottomPadding = 20
+                bottomPadding = 20,
+                contentPaddingLeft = contentPaddingLeft
             })
             panel.scrollFrame = scrollFrame
             panel.scrollChild = scrollChild
@@ -321,39 +276,20 @@ function Context:createTabbedInterface(options)
         tabs[tabIndex] = tabButton
     end
 
+    -- Update sidebar scroll range after all tab buttons are created
+    if sidebar.updateScrollRange then
+        sidebar:updateScrollRange()
+    end
+
     -- Initial tab activation
     if initialIndex then
         selectTab(initialIndex)
-    end
-
-    -- Auto-collapse observation on parent frame resize
-    if collapsibleSidebar and parent and parent.HookScript then
-        parent:HookScript("OnSizeChanged", function(frame, w, h)
-            w = w or (frame and frame:GetWidth()) or 0
-            if w > 0 then
-                if w < collapseThreshold and not isCollapsed then
-                    setCollapsed(true)
-                elseif w >= collapseThreshold and isCollapsed and not userToggledManual then
-                    setCollapsed(false)
-                end
-            end
-        end)
-
-        local initW = parent:GetWidth() or 0
-        if initW > 0 and initW < collapseThreshold then
-            setCollapsed(true)
-        end
     end
 
     return {
         sidebar = sidebar,
         tabs = tabs,
         panels = panels,
-        toggleButton = toggleButton,
-        collapseSidebar = function() setCollapsed(true) end,
-        expandSidebar = function() setCollapsed(false) end,
-        toggleSidebar = function() setCollapsed(not isCollapsed) end,
-        isCollapsed = function() return isCollapsed end,
         selectTab = selectTab,
         getActiveTab = function() return activeTab end,
         getContent = function(tabIndex)

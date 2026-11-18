@@ -22,32 +22,32 @@ lib.UX = UX
 
 -------------------------------------------------------------------------------
 -- 2. RESIZE LOGIC
--- Objective: Configure frame to be resizable and add metallic corner bracket handle at bottom-right.
+-- Objective: Configure frame to be resizable, add metallic corner bracket handle at bottom-right,
+-- and delegate dimension persistence (width, height) to Core/PositionManager.lua when configured.
 -- Variables:
 -- frame: Frame UI object made resizable.
--- minWidth: Minimum allowable width or configuration options table.
--- minHeight: Minimum allowable height when resizing.
--- maxWidth: Maximum allowable width when resizing.
--- maxHeight: Maximum allowable height when resizing.
+-- options: Mandatory configuration table requiring explicit `saveSize` (boolean).
 -------------------------------------------------------------------------------
 --- Configures a frame to be resizable and adds a metallic corner bracket handle at the bottom-right.
---- Supports both positional arguments: `UX:makeResizable(frame, minWidth, minHeight, maxWidth, maxHeight)`
---- and options table: `UX:makeResizable(frame, options)`.
+--- Requires `options` table with an explicit boolean `options.saveSize` (`true` or `false`).
 --- @param frame table UI frame object to make resizable.
---- @param minWidth number|table Either minimum width, or a table with options.
---- @param minHeight number|nil Minimum height if minWidth is a number.
+--- @param minWidth number|table Configuration table with `saveSize = true|false`, minWidth, minHeight, etc.
+--- @param minHeight number|nil Minimum height if positional arguments are used.
 --- @param maxWidth number|nil Maximum allowable width when resizing.
 --- @param maxHeight number|nil Maximum allowable height when resizing.
-function UX:makeResizable(frame, minWidth, minHeight, maxWidth, maxHeight)
-    if not frame then return end
+--- @param saveSize boolean|nil Explicit boolean if positional arguments are used.
+function UX:makeResizable(frame, minWidth, minHeight, maxWidth, maxHeight, saveSize)
+    assert(frame, "UX:makeResizable requires a valid 'frame'")
 
     local minW, minH, maxW, maxH
     local onResizeStop, onSizeChanged
     local gripSize = 24
     local gripThickness = 8
+    local opts
 
     if type(minWidth) == "table" then
-        local opts = minWidth
+        opts = minWidth
+        assert(type(opts.saveSize) == "boolean", "UX:makeResizable requires explicit boolean 'options.saveSize' (true or false)")
         minW = opts.minWidth or opts.minW or 0
         minH = opts.minHeight or opts.minH or 0
         maxW = opts.maxWidth or opts.maxW or 0
@@ -57,16 +57,51 @@ function UX:makeResizable(frame, minWidth, minHeight, maxWidth, maxHeight)
         gripSize = opts.gripSize or 24
         gripThickness = opts.gripThickness or 8
     else
+        assert(type(saveSize) == "boolean", "UX:makeResizable requires explicit boolean 'saveSize' (true or false)")
+        opts = {
+            saveSize = saveSize,
+            minWidth = minWidth,
+            minHeight = minHeight,
+            maxWidth = maxWidth,
+            maxHeight = maxHeight
+        }
         minW = minWidth or 0
         minH = minHeight or 0
         maxW = maxWidth or 0
         maxH = maxHeight or 0
     end
 
+    local pm = lib.PositionManager
+    local storageTable = nil
+    if opts.saveSize and pm then
+        storageTable = frame.positionStorage or pm:resolveStorageTable(frame, opts)
+        frame.positionStorage = storageTable
+    end
+
     -- Configure Resize Properties
     frame:SetResizable(true)
-    if (minW and minW > 0) or (minH and minH > 0) or (maxW and maxW > 0) or (maxH and maxH > 0) then
-        frame:SetResizeBounds(minW or 0, minH or 0, maxW or 0, maxH or 0)
+    local function getEffectiveBounds()
+        local fScale = frame:GetEffectiveScale() or 1
+        local pScale = (UIParent and UIParent:GetEffectiveScale()) or fScale
+        local scaleRatio = (fScale > 0) and (pScale / fScale) or 1
+        local rawScreenW = (UIParent and UIParent:GetWidth()) or GetScreenWidth()
+        local rawScreenH = (UIParent and UIParent:GetHeight()) or GetScreenHeight()
+        local screenW = rawScreenW * scaleRatio
+        local screenH = rawScreenH * scaleRatio
+        local effectiveMaxW = (maxW and maxW > 0) and math.min(maxW, screenW) or screenW
+        local effectiveMaxH = (maxH and maxH > 0) and math.min(maxH, screenH) or screenH
+        return minW or 0, minH or 0, effectiveMaxW, effectiveMaxH, scaleRatio, screenW, screenH
+    end
+
+    local function applyResizeBounds()
+        local bMinW, bMinH, bMaxW, bMaxH = getEffectiveBounds()
+        frame:SetResizeBounds(bMinW, bMinH, bMaxW, bMaxH)
+    end
+    applyResizeBounds()
+
+    -- Restore saved dimensions if enabled in PositionManager
+    if opts.saveSize and pm and storageTable then
+        pm:applySavedSize(frame, storageTable)
     end
 
     -- Hook OnSizeChanged if callback is provided
@@ -146,6 +181,30 @@ function UX:makeResizable(frame, minWidth, minHeight, maxWidth, maxHeight)
     setBracketColor(steelBase)
 
     local isResizing = false
+    local startCursorX, startCursorY = 0, 0
+    local startW, startH = 0, 0
+    local activeMinW, activeMinH, activeMaxW, activeMaxH = 0, 0, 0, 0
+    local lastW, lastH = nil, nil
+
+    local function finishResize(triggerCallbacks)
+        if not isResizing then return end
+        isResizing = false
+        resizeBtn:SetScript("OnUpdate", nil)
+        if resizeBtn:IsMouseOver() then
+            setBracketColor(steelHover)
+        else
+            setBracketColor(steelBase)
+        end
+        if opts.saveSize and pm and storageTable then
+            pm:updateSizeFromFrame(frame, storageTable)
+        end
+        if opts.savePosition and pm and storageTable then
+            pm:updatePositionFromFrame(frame, storageTable)
+        end
+        if triggerCallbacks and onResizeStop then
+            onResizeStop(frame, frame:GetWidth(), frame:GetHeight())
+        end
+    end
 
     -- Handle Interactive States
     resizeBtn:SetScript("OnEnter", function(self)
@@ -161,43 +220,78 @@ function UX:makeResizable(frame, minWidth, minHeight, maxWidth, maxHeight)
     end)
 
     resizeBtn:SetScript("OnMouseDown", function(self, button)
-        if button == "LeftButton" then
-            isResizing = true
-            setBracketColor(steelActive)
-            frame:StartSizing("BOTTOMRIGHT")
+        if button ~= "LeftButton" then return end
+        if storageTable and storageTable.locked then return end
+
+        local bMinW, bMinH, bMaxW, bMaxH, scaleRatio, screenW, screenH = getEffectiveBounds()
+        frame:SetResizeBounds(bMinW, bMinH, bMaxW, bMaxH)
+
+        local left, top = frame:GetLeft(), frame:GetTop()
+        local w, h = frame:GetSize()
+        if not w or w <= 0 or not h or h <= 0 then return end
+
+        if left and top and UIParent then
+            local uiLeft = (UIParent:GetLeft() or 0) * scaleRatio
+            local uiTop = (UIParent:GetTop() or (GetScreenHeight() * scaleRatio)) * scaleRatio
+            frame:ClearAllPoints()
+            frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", left - uiLeft, top - uiTop)
+            frame:SetSize(w, h)
+            if frame.GetClampedToScreen and frame:GetClampedToScreen() then
+                local availW = (uiLeft + screenW) - left
+                local availH = top - (uiTop - screenH)
+                if availW > 0 then bMaxW = math.min(bMaxW, availW) end
+                if availH > 0 then bMaxH = math.min(bMaxH, availH) end
+            end
         end
+
+        local fScale = frame:GetEffectiveScale() or 1
+        local cx, cy = GetCursorPosition()
+        startCursorX = cx / fScale
+        startCursorY = cy / fScale
+        startW, startH = w, h
+        activeMinW, activeMinH = bMinW, bMinH
+        activeMaxW, activeMaxH = math.max(bMinW, bMaxW), math.max(bMinH, bMaxH)
+        lastW, lastH = w, h
+
+        isResizing = true
+        setBracketColor(steelActive)
+        self:SetScript("OnUpdate", function()
+            if not isResizing then return end
+            local curScale = frame:GetEffectiveScale() or 1
+            local curX, curY = GetCursorPosition()
+            curX = curX / curScale
+            curY = curY / curScale
+            local dx = curX - startCursorX
+            local dy = startCursorY - curY
+            local newW = math.max(activeMinW, math.min(activeMaxW, startW + dx))
+            local newH = math.max(activeMinH, math.min(activeMaxH, startH + dy))
+            if newW ~= lastW or newH ~= lastH then
+                lastW, lastH = newW, newH
+                frame:SetSize(newW, newH)
+            end
+        end)
     end)
 
     resizeBtn:SetScript("OnMouseUp", function(self, button)
         if button == "LeftButton" then
-            isResizing = false
-            frame:StopMovingOrSizing()
-            if self:IsMouseOver() then
-                setBracketColor(steelHover)
-            else
-                setBracketColor(steelBase)
-            end
-            if onResizeStop then
-                onResizeStop(frame, frame:GetWidth(), frame:GetHeight())
-            end
+            finishResize(true)
         end
+    end)
+
+    resizeBtn:SetScript("OnHide", function()
+        finishResize(false)
     end)
 
     frame.resizeBtn = resizeBtn
 end
+UX.MakeResizable = UX.makeResizable
 
 -------------------------------------------------------------------------------
 -- 3. EXTENSION & EXPANSION NOTES
 -- Objective: Guidelines for custom resize handles, aspect ratio locking, and on-resize relayout callbacks.
 --
 -- How to expand:
--- 1. Resize Callbacks:
---    Hook `frame:HookScript("OnSizeChanged", function(self, w, h) ... end)` to dynamically recalculate
---    child column widths or scroll area bounds during user resizing.
--- 2. Four-Corner / Edge Handles:
---    Add optional side/corner handles (`"TOPRIGHT"`, `"BOTTOMLEFT"`, `"RIGHT"`, `"BOTTOM"`) by creating
---    additional grabber buttons calling `frame:StartSizing("<Point>")`.
--- 3. Dimension Persistence:
---    Store final `frame:GetSize()` values into `config.width` and `config.height` inside `OnMouseUp`
---    for automatic restoration across reload.
+-- 1. Dimension Persistence:
+--    Pass `saveSize = true` in `options` to automatically store and restore `width` and `height`
+--    in `Core/PositionManager.lua` (`_G.AscensionUIPositions[name]`).
 -------------------------------------------------------------------------------

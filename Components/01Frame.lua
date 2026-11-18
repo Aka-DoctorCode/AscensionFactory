@@ -33,46 +33,54 @@ if not Context then return end
 -------------------------------------------------------------------------------
 
 --- Creates a versatile Obsidian Cyberpunk styled container frame.
---- @param options table|nil Optional configuration table.
+--- @param options table Configuration table (requires options.name, options.width, options.height).
 --- @return table frame The styled frame instance.
 function Context:createFrame(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for createFrame")
+    assert(options.name, "options.name is required for createFrame")
+    assert(options.parent, "options.parent is required for createFrame")
+    assert(type(options.width) == "number", "options.width is required and must be a number")
+    assert(type(options.height) == "number", "options.height is required and must be a number")
+    if options.movable then
+        assert(type(options.savePosition) == "boolean", "options.savePosition (true or false) is required when options.movable is true")
+    end
+    if options.resizable then
+        assert(type(options.saveSize) == "boolean", "options.saveSize (true or false) is required when options.resizable is true")
+    end
+
     local styles = self.styles
     local ux = lib.UX
-    local parent = options.parent or _G.UIParent
+    local parent = options.parent
+
+    local point = options.point or options.anchor or "CENTER"
+    local relativePoint = options.relativePoint or point or "CENTER"
 
     -- Request a base 'Frame' element from the FrameworkPool
     local frame = self:acquireElement("Frame", parent, {
-        anchorPoint = options.anchor or options.point or "CENTER",
+        anchorPoint = point,
         width = options.width,
         height = options.height
     })
 
-    -- Global namespace registration if name was provided
-    if options.name then
-        _G[options.name] = frame
-        frame.globalName = options.name
-    end
+    -- Global namespace registration
+    _G[options.name] = frame
+    frame.globalName = options.name
 
     -- Sizing
-    frame:SetSize(options.width or 300, options.height or 200)
+    frame:SetSize(options.width, options.height)
 
     -- Anchoring
     frame:ClearAllPoints()
-    if options.point then
-        frame:SetPoint(
-            options.point,
-            options.relativeTo or parent,
-            options.relativePoint or options.point,
-            options.xOffset or 0,
-            options.yOffset or 0
-        )
-    else
-        frame:SetPoint(options.anchor or "CENTER")
-    end
+    frame:SetPoint(
+        point,
+        options.relativeTo or parent,
+        relativePoint,
+        options.xOffset or 0,
+        options.yOffset or 0
+    )
 
     -- Strata & Clamping
-    local targetStrata = options.strata or (parent and parent.GetFrameStrata and parent:GetFrameStrata()) or "MEDIUM"
+    local targetStrata = options.strata or (parent and parent.GetFrameStrata and parent:GetFrameStrata()) or "HIGH"
     frame:SetFrameStrata(targetStrata)
     if parent and parent.GetFrameLevel and not options.frameLevel then
         frame:SetFrameLevel(math.max(1, parent:GetFrameLevel() + 1))
@@ -121,6 +129,7 @@ function Context:createFrame(options)
             name = options.name and (options.name .. "CloseButton"),
             iconType = "close",
             size = options.closeButtonSize or 24,
+            tooltip = false,
             point = "TOPRIGHT",
             relativeTo = frame,
             relativePoint = "TOPRIGHT",
@@ -137,7 +146,15 @@ function Context:createFrame(options)
         frame.closeButton = closeButton
     end
 
-    -- Optional UX interactions
+    -- Optional UX interactions & PositionManager integration
+    local pm = lib.PositionManager
+    if pm and not options.movable and options.savePosition and (options.positionTable or options.positionKey) then
+        local storageTable = pm:resolveStorageTable(frame, options)
+        frame.positionStorage = storageTable
+        if storageTable and storageTable.point then
+            pm:applySavedPosition(frame, storageTable, options.relativeTo or parent)
+        end
+    end
     if ux then
         if options.movable then
             ux:makeMovable(frame, options)
@@ -154,21 +171,28 @@ function Context:createFrame(options)
 end
 
 --- Creates the primary application window with main window defaults.
---- @param options table Configuration table (requires options.name).
+--- @param options table Configuration table (requires options.name, options.width, options.height, options.minWidth, options.minHeight).
 --- @return table frame The primary application window frame.
 function Context:createMainFrame(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for main frame")
     assert(options.name, "options.name required for main frame")
+    assert(type(options.width) == "number", "options.width is required and must be a number for main frame")
+    assert(type(options.height) == "number", "options.height is required and must be a number for main frame")
+    assert(type(options.minWidth) == "number", "options.minWidth is required and must be a number for main frame")
+    assert(type(options.minHeight) == "number", "options.minHeight is required and must be a number for main frame")
 
     local frameOptions = {}
     for k, v in pairs(options) do
         frameOptions[k] = v
     end
 
-    frameOptions.width = options.width or 860
-    frameOptions.height = options.height or 500
-    frameOptions.anchor = options.anchor or "CENTER"
-    frameOptions.strata = options.strata or "DIALOG"
+    frameOptions.width = options.width
+    frameOptions.height = options.height
+    frameOptions.minWidth = options.minWidth
+    frameOptions.minHeight = options.minHeight
+    frameOptions.anchor = options.anchor or options.point or "CENTER"
+    frameOptions.relativePoint = options.relativePoint or frameOptions.anchor
+    frameOptions.strata = options.strata or "HIGH"
     frameOptions.borderInset = options.borderInset or 2
 
     if frameOptions.showCloseButton == nil then
@@ -179,6 +203,15 @@ function Context:createMainFrame(options)
     end
     if frameOptions.closableWithEscape == nil then
         frameOptions.closableWithEscape = true
+    end
+    if frameOptions.resizable == nil then
+        frameOptions.resizable = true
+    end
+    if frameOptions.movable then
+        assert(type(frameOptions.savePosition) == "boolean", "options.savePosition (true or false) is required for createMainFrame when movable is true")
+    end
+    if frameOptions.resizable then
+        assert(type(frameOptions.saveSize) == "boolean", "options.saveSize (true or false) is required for createMainFrame when resizable is true")
     end
 
     return self:createFrame(frameOptions)

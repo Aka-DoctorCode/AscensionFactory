@@ -1,15 +1,16 @@
 ---
 name: ascension-factory
 description: >-
-  Especialista en la arquitectura de software, patrones de diseño OOP, reciclaje de elementos
-  y catálogo de componentes UI/UX del framework AscensionFactory para World of Warcraft.
-  Usar siempre que se consulte, modifique, extienda o implemente código dentro de AscensionFactory
-  o en addons que consuman esta librería.
+  Especialista integral en el framework AscensionFactory para World of Warcraft: arquitectura OOP,
+  reciclaje de widgets, catálogo completo de constructores Context:create*, motor de layout
+  responsivo (LayoutModel, LayoutBuilder, ColumnGroup, UX:makeResponsive), secciones, scrollables
+  y reglas de seguridad/sincronización. Usar siempre que se consulte, modifique, extienda o
+  implemente UI dentro de AscensionFactory o en addons consumidores.
 ---
 
-# Skill: Desarrollo y Mantenimiento de AscensionFactory
+# Skill: Desarrollo, Arquitectura y Layout en AscensionFactory
 
-Esta skill documenta la arquitectura de software, los patrones de programación orientada a objetos (OOP), el sistema de pooling de widgets, el catálogo completo de constructores y las directrices obligatorias de seguridad y documentación de [`AscensionFactory`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory).
+Esta skill unifica la arquitectura interna, las reglas de seguridad, el catálogo de constructores de bajo nivel (`Context:create*`) y la guía práctica del motor de posicionamiento responsivo (`LayoutModel` + `LayoutBuilder` + `03ColumnGroup` + `UX/Responsive`) de [`AscensionFactory`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory).
 
 ---
 
@@ -24,51 +25,60 @@ Esta skill documenta la arquitectura de software, los patrones de programación 
 > 3. **Preguntar y obtener confirmación expresa del usuario antes de ejecutar la edición.**
 
 > [!IMPORTANT]
-> ### REGLA 2: SINCRONIZACIÓN OBLIGATORIA DE DOCUMENTACIÓN
+> ### REGLA 2: SINCRONIZACIÓN OBLIGATORIA DE DOCUMENTACIÓN Y REPOSITORIOS
 > Cada vez que se cree un nuevo componente, se altere un constructor, se agregue un método o se modifiquen parámetros:
 > - Es **ESTRICTAMENTE OBLIGATORIO** actualizar [`Components/README.md`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/Components/README.md) manteniendo el formato de tabla de auditoría:
 >   `| Parámetro | Tipo | Requisito | Valor por Defecto | Descripción |`.
-> - Se debe distinguir claramente entre parámetros **Obligatorios** y **Opcionales** con sus valores por defecto exactos.
-> - Actualizar [`README.md`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/README.md) si se introducen capacidades públicas o cambios de API.
+> - Distinguir claramente entre parámetros **Obligatorios** y **Opcionales** con sus valores por defecto exactos.
+> - Actualizar el [`README.md`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/README.md) principal de la raíz, que incluye el contenido completo de `Components/README.md` sin eliminar `Components/README.md`.
+> - Mantener sincronizados los directorios de Retail (`/Applications/World of Warcraft/_retail_/Interface/AddOns/AscensionFactory`) y Desarrollo (`/Users/franciscomolina/Dev/WOW AddOns/AscensionFactory`).
 
 > [!TIP]
 > ### REGLA 3: REUTILIZACIÓN ESTRICTA Y OOP (NO REINVENTAR LA RUEDA)
-> Si necesitas un botón, slider, toggle, input, tooltip o menú, **NUNCA** crees un frame o widget desde cero con `CreateFrame`. Llama al constructor de `Context` (`Context:createButton`, `Context:createSlider`, etc.) pasándole la tabla de opciones requerida.
+> Si necesitas un botón, slider, slider con stepper, toggle, checkbox, input, color picker, tooltip, toast, acordeón, grupo de columnas o menú, **NUNCA** crees un frame o widget desde cero con `CreateFrame`. Usa los wrappers de `LayoutModel`/`LayoutBuilder` (`layout:button`, `layout:toggle`, `layout:row`, etc.) o llama al constructor de `Context` (`Context:createButton`, `Context:createSliderWithStepper`, `Context:createColumnGroup`, etc.).
 
 ---
 
 ## 2. Arquitectura de Software del Framework
 
-AscensionFactory está diseñado siguiendo un patrón orientado a objetos (OOP) desacoplado, modular y con pooling intensivo:
+`AscensionFactory` sigue un patrón orientado a objetos (OOP) desacoplado, modular y con pooling intensivo:
 
 ```
 AscensionFactory/
 ├── Core/
-│   ├── Core.lua               # Registro en LibStub y Prototipo Context
+│   ├── Core.lua               # Registro en LibStub, detección de addonName y Prototipo Context
+│   ├── Context.lua            # Tokens de diseño Obsidian Cyberpunk (colores, fuentes, estilos)
 │   ├── FrameworkPool.lua      # Gestión y reciclaje de pools de widgets de WoW
-│   ├── ThemeStyles.lua        # Tokens de diseño Obsidian Cyberpunk (colores, fuentes)
-│   └── LayoutModel.lua        # Disposición secuencial automática de elementos
+│   ├── PositionManager.lua    # Capa exclusiva de persistencia de coordenadas y dimensiones (_G.AscensionUIPositions)
+│   ├── LayoutModel.lua        # Motor puro de apilamiento relativo, tamaño trifásico y tracking de altura
+│   └── LayoutBuilder.lua      # Facade fluida sobre LayoutModel (wrappers, row, sections, columns) + auto-anclaje en Context
 ├── UX/
-│   ├── Hoverable.lua          # Estados hover/active y enlace con tooltips
 │   ├── ClickOutside.lua       # Detección modal de clicks fuera de ventanas emergentes
+│   ├── Hoverable.lua          # Estados hover/active/disabled y enlace con tooltips
+│   ├── Closable.lua           # Cierre con tecla Escape (UISpecialFrames) y reciclaje opcional
+│   ├── Draggable.lua          # Interacción de arrastrar con el ratón (delega persistencia a PositionManager)
+│   ├── Resizable.lua          # Manija metálica de redimensión en esquina (delega tamaño a PositionManager)
+│   ├── Responsive.lua         # Coordinador responsivo con debounce (breakpoints "normal" / "compact")
 │   └── Scrollable.lua         # Viewports scrollables reciclando 09Slider.lua
 ├── Components/                # Catálogo de constructores UI modulares
-│   ├── 01Frame.lua            # Ventanas base y principales (MainFrame)
-│   ├── 02TabbedInterface.lua  # Navegación con pestañas y paneles
-│   ├── 03TwoColumn.lua        # Layout dividido 50/50
-│   ├── 04Text.lua             # Headers, Labels y Paragraphs
-│   ├── 05Button.lua           # Buttons, IconButtons (vectores) y DialogButtons
-│   ├── 06Toggle.lua           # Switch binario animado
-│   ├── 07Checkbox.lua         # Checkbox con checkmark vectorizado
-│   ├── 08InputField.lua       # Inputs de texto mono/multilínea con ScrollFrame
-│   ├── 09Slider.lua           # Sliders continuos/discretos con thumb diamond/capsule/bar
-│   ├── 10Stepper.lua          # Incrementador numérico con input central y repeat ticker
-│   ├── 11Tooltip.lua          # Tooltips Cyberpunk con ajuste dinámico
-│   ├── 12Dropdown.lua         # Select desplegable con lista scrollable
-│   ├── 13ContextMenu.lua      # Menú contextual emergente por click derecho
-│   ├── 14Toast.lua            # Alertas HUD con cola FIFO y temporizadores
-│   ├── 15ColorPicker.lua      # Selector modal de color RGBA con gradientes e historial
-│   └── README.md              # Auditoría completa de parámetros y tipos
+│   ├── 01Frame.lua            # Ventanas base (createFrame) y principales (createMainFrame)
+│   ├── 02TabbedInterface.lua  # Navegación con pestañas colapsables y paneles auto-scroll
+│   ├── 03TwoColumn.lua        # Layout clásico dividido 50/50 con auto-apilamiento responsivo
+│   ├── 03ColumnGroup.lua      # Contenedor multi-columna N-columnas autónomo y responsivo (createColumnGroup)
+│   ├── 04Text.lua             # Headers, Labels y Paragraphs con ajuste elástico (wordWrap)
+│   ├── 05Button.lua           # Buttons, IconButtons (vectores), DialogButtons y DialogButtonGroup
+│   ├── 06Toggle.lua           # Switch binario animado con soporte flexRow
+│   ├── 07Checkbox.lua         # Checkbox con checkmark vectorizado y soporte flexRow
+│   ├── 08InputField.lua       # Inputs de texto mono/multilínea con ScrollFrame y fluidWidth
+│   ├── 09Slider.lua           # Sliders H/V (createSlider) y Slider compuesto con Stepper (createSliderWithStepper)
+│   ├── 10Stepper.lua          # Incrementador numérico unido con input central y repeat ticker
+│   ├── 11Tooltip.lua          # Tooltips Cyberpunk con ajuste dinámico (max 1/3 ancho x 9/10 alto de pantalla)
+│   ├── 12Dropdown.lua         # Select desplegable con lista scrollable y fluidWidth
+│   ├── 13ContextMenu.lua      # Menú contextual emergente por click derecho e integración con PositionManager
+│   ├── 14Toast.lua            # Alertas HUD compactas con cola FIFO, temporizadores y persistencia en PositionManager
+│   ├── 15ColorPicker.lua      # Fila limpia con botón cuadrado 24x24 (swatchButton) y modal RGBA con persistencia de posición
+│   ├── 16Accordion.lua        # Tarjeta colapsable (Card Accordion) con encabezado estilizado, flecha rotatoria y sub-LayoutModel
+│   └── README.md              # Auditoría completa de parámetros, tipos, obligatoriedad y valores por defecto
 └── Integration/
     └── BlizzardOptions.lua    # Integración con Settings.RegisterCanvasLayoutCategory
 ```
@@ -80,107 +90,246 @@ AscensionFactory/
 ### 3.1 Prototipo Maestro `Context` (`Core/Core.lua`)
 - `lib.Context` es el prototipo donde se registran todos los constructores de componentes.
 - `Context.__index = Context` proporciona herencia OOP en Lua.
-- Un consumidor obtiene una instancia con:
+- Obtención de instancia en un addon consumidor:
   ```lua
   local AF = LibStub("AscensionFactory")
   local UI = AF:createContext(customStyles)
   ```
-- Cada método adjunto a `Context` (ej. `function Context:createButton(options)`) está disponible inmediatamente en cualquier instancia `UI`.
+- `createContext` detecta automáticamente el nombre del AddOn emisor (`context.addonName`) inspeccionando el `debugstack`, alimentando valores por defecto como el título de notificaciones en `14Toast.lua` y su clave de posición.
 
-### 3.2 Pooling y Reciclaje de Widgets (`Core/FrameworkPool.lua`)
-- En WoW, `CreateFrame` es costoso y los widgets eliminados no son recolectados por el GC.
-- Todos los constructores adquieren elementos usando:
-  ```lua
-  local widget = self:acquireElement(widgetType, parent, options)
-  ```
-- Tipos de pools soportados: `"Frame"`, `"Button"`, `"StatusBar"`, `"CheckButton"`, `"EditBox"`, `"Texture"`, `"FontString"`, `"Slider"`.
-- Cada tipo tiene su reseteador dedicado que limpia scripts, colores, puntos y texturas antes de devolver el elemento al pool (`resetButton`, `resetFrame`, etc.).
-- Para vaciar un panel dinámico antes de re-dibujarlo: `self:cleanupContent(panelFrame)`.
+### 3.2 Separación de Persistencia (`PositionManager`) vs Interacción (`Draggable` & `Resizable`)
+- **`Core/PositionManager.lua`**: Gestiona **exclusivamente** lectura, escritura, aplicación y reseteo de coordenadas (`point`, `relativePoint`, `x`, `y`) y dimensiones (`width`, `height`) en `_G.AscensionUIPositions` (o tabla `SavedVariables` personalizada):
+  - `initPositionStorage(moduleKey, defaultTable, storageTableName)`
+  - `updatePositionFromFrame(frame, positionTable)` / `applySavedPosition(frame, positionTable, relativeTo)`
+  - `updateSizeFromFrame(frame, positionTable)` / `applySavedSize(frame, positionTable)`
+  - `resetPosition(frame, positionTable, defaultTable, relativeTo)`
+  - `resolveStorageTable(frame, config)`
+- **`UX/Draggable.lua` (`UX:makeMovable(frame, config)`)**: Solo arrastre con ratón. **Exige** `config.savePosition` (`true` o `false` explícito).
+- **`UX/Resizable.lua` (`UX:makeResizable(frame, options)`)**: Manija de redimensión inferior derecha. **Exige** `options.saveSize` (`true` o `false` explícito).
+- **Módulos conectados con `PositionManager`**: `01Frame.lua`, `13ContextMenu.lua` (`addLockButton`, `addResetPositionButton`), `14Toast.lua` (`toastManager`), `15ColorPicker.lua` (`AscensionFactoryColorPickerDialog`).
 
-### 3.3 Composición de Componentes
-- Los componentes complejos se ensamblan combinando componentes más primitivos:
-  - `createMainFrame` = `createFrame` + `createIconButton` (cerrar) + scripts de arrastre y Escape.
-  - `createCheckbox` = `createButton` (fila) + texturas vectoriales de palomita + `createLabel`.
-  - `createStepper` = frame contenedor + dos `createIconButton` (minus/plus) + `createInputField` central con cálculo automático de ancho.
-  - `createDropdown` = `createButton` + `createIconButton` (flecha) + `createFrame` flotante + `UX:makeScrollable` (con `createSlider`) + `UX:registerClickOutside`.
-  - `UX:makeScrollable` = `ScrollFrame` nativo + frame canvas hijo + `createSlider` vertical con tirador en forma de cápsula.
+### 3.3 Coordinador Responsivo Independiente (`UX/Responsive.lua`)
+- `UX:makeResponsive(containerFrame, options)` adjunta un coordinador debounced (`debounce = 0.05` s por defecto) que evalúa `threshold` (defecto `480` px) para alternar entre modo `"normal"` y `"compact"`, notificando a sus suscriptores (`coordinator:registerSubscriber(elementOrCallback, callback)`) sin acoplarse obligatoriamente a `LayoutModel`.
 
-### 3.4 Sistema de Diseño Obsidian Cyberpunk (`Core/ThemeStyles.lua`)
-- **Fondo Metálico Oscuro**: `#020305` (`styles.colors.background`).
-- **Bordes y Delimitadores**: `#141A24` (`styles.colors.border`), `borderInset = 1` o `2`.
-- **Superficies**: `surfaceDark`, `surfaceLight`, `surfaceHover`.
-- **Acentos Neón Principales**: `#FF6000` (`styles.colors.primary`), `primaryHover`, `primaryActive`.
-- **Semántica Funcional**: `neonGreen` (aceptar, éxito), `neonRed` (cancelar, cerrar, peligro).
-- **Tipografías**: `styles.fonts.title`, `styles.fonts.label`, `styles.fonts.text`, `styles.fonts.code`.
+### 3.4 Composición de Componentes
+- `createMainFrame` = `createFrame` + `createIconButton` (cerrar) + `UX:makeMovable` + `UX:makeResizable` + `UX:makeClosableWithEscape`.
+- `createCheckbox` = `createButton` (fila limpia) + caja de 25x25 px + texturas vectoriales de palomita + `label` con soporte `flexRow`.
+- `createColorPicker` = `createButton` (fila limpia) + botón cuadrado 24x24 px (`swatchButton`, `swatchSize = 24`) con damero alfa + `label` con `flexRow` + diálogo modal compartido (`getOrCreateColorPickerDialog`).
+- `createStepper` = contenedor (`height = 24` por defecto) + dos `createIconButton` (`minus`/`plus`) + `createInputField` central con repeat ticker.
+- `createSliderWithStepper` = `createSlider` horizontal + `createStepper` fluido anclado debajo (`slider.stepper`) con sincronización bidireccional automática.
 
 ---
 
-## 4. Guía de Referencia Rápida de Constructores
+## 4. Motor de Layout (`LayoutModel` + `LayoutBuilder` + `03ColumnGroup`)
 
-| Constructor | Elemento Retornado | Parámetros Obligatorios | Defaults Clave |
+En la arquitectura actual, `Core/LayoutModel.lua` es el motor puro de anclaje relativo y tamaño trifásico, mientras que `Core/LayoutBuilder.lua` mezcla sobre `LayoutModel` la facade fluida de alto nivel (wrappers, `row`, secciones y columnas) y registra un interceptor en `Context` para auto-anclar cualquier widget creado con `{ layout = myLayout }`.
+
+### 4.1 Inicialización y Ciclo de Vida
+```lua
+-- Opción A: Desde el Contexto UI (Recomendado)
+local layout = uiContext:createLayoutModel(parentFrame, options)
+
+-- Opción B: Directo desde la librería
+local AF = LibStub("AscensionFactory")
+local layout = AF.LayoutModel:new(uiContext, parentFrame, options)
+
+-- Opción C: Facade standalone LayoutBuilder
+local builder = AF.LayoutBuilder:new(uiContext, layout)
+```
+Opciones de `options` (o un número equivalente a `{ startY = number }`):
+- `verticalGap` / `gap` (número, defecto `uiContext:getDefaultGap()` o `10`): Espaciado vertical entre elementos.
+- `bottomPadding` (número, defecto igual a `defaultGap`): Margen inferior reservado.
+- `startY` (número, opcional): Offset vertical inicial antes del primer elemento.
+- `threshold` (número, defecto `480`): Ancho en píxeles entre modo `"normal"` y `"compact"`.
+- `responsive` (booleano, defecto `true`): Conecta `UX:makeResponsive` al contenedor padre (salvo `responsive = false`).
+- `onModeChange` (función `fn(layout, mode, width, height)`): Callback al cambiar de modo responsivo.
+- `onContainerResized` (función): Callback al recalcular altura del contenedor.
+- `scrollable` o `autoScroll` (booleano): Delega en `UX:makeScrollable(parentFrame)` y apunta `currentParent` al `scrollChild`.
+- `scrollStep` (número, defecto `30`): Paso de rueda del ratón.
+
+Para reciclar una instancia sin generar basura (GC):
+```lua
+layout:reset(parentFrame, options)
+```
+
+### 4.2 Motor de Anclaje, Auto-Anclaje y Espaciado
+- `layout:addSpace(pixels)`: Separa verticalmente solo al siguiente elemento (enruta al sub-layout activo si estás dentro de una sección/columna).
+- `layout:addIndent(pixels)`: Aplica desplazamiento horizontal `X` único al siguiente elemento.
+- `layout:getAvailableWidth(padding, element)`: Retorna el ancho útil disponible dentro del contenedor actual.
+- `layout:add(element, options)`: Ancla manualmente un widget al flujo vertical del layout.
+- `layout:recalculateAccumulatedHeight()`, `layout:onChildResized(child, newHeight)`, `layout:updateScrollRangeIfAvailable()`: Sincronización dinámica de altura y rango de scroll.
+- **Auto-anclaje desde `Context`**: Al pasar `layout = myLayout` en la tabla de opciones de cualquier constructor estándar de `Context` (`createButton`, `createSliderWithStepper`, `createColumnGroup`, etc.), `LayoutBuilder` lo ancla automáticamente vía `registerCreatedElement` sin necesidad de llamar a `layout:add(...)`.
+
+### 4.3 Catálogo de Wrappers en `LayoutModel` / `LayoutBuilder`
+Todos devuelven la referencia del widget creado y soportan firmas híbridas (argumentos posicionales o tabla `opts`). Además, **normalizan automáticamente `opts.tooltip = false` si `tooltip == nil`**:
+- `layout:header(elementID, text, options)`
+- `layout:label(elementID, text, options)`
+- `layout:paragraph(elementID, textOrOptions, rightOffset)`
+- `layout:button(elementID, textOrOptions, tooltip, width, height, onClick)` (soporta `opts.variant` y `fluidWidth`)
+- `layout:toggle(elementID, getterOrOptions, setter, width, height, onClick)`
+- `layout:checkbox(elementID, textOrOptions, getter, setter, size, onClick)`
+- `layout:colorPicker(elementID, textOrOptions, tooltip, getter, setter, hasAlpha, options)` (soporta `hasAlpha`, getter/setter `(r, g, b, a)`)
+- `layout:slider(elementID, textOrOptions, minValue, maxValue, step, getter, setter, options)`
+- `layout:sliderWithStepper(elementID, textOrOptions, minValue, maxValue, step, getter, setter, options)` (devuelve `(sliderElement, stepperElement)`)
+- `layout:stepper(elementID, textOrOptions, minValue, maxValue, step, getter, setter, options)`
+- `layout:inputField(elementID, textOrOptions, width, height, options)` (alias `layout:input`)
+- `layout:dropdown(elementID, textOrOptions, optionsList, getter, setter, options)`
+- `layout:accordion(elementID, textOrOptions, populateFn, options)` (tarjeta colapsable con sub-`LayoutModel` aislado y re-anclaje automático de hermanos verticales)
+
+### 4.4 Secciones Agrupadas (`beginSection` / `endSection`)
+Agrupa elementos dentro de una tarjeta con fondo y bordes del tema usando un sub-layout aislado:
+```lua
+layout:beginSection() -- width opcional; nil para ancho fluido
+    layout:header("Sec1_Header", "Configuración de Módulos")
+    layout:toggle("Sec1_Toggle", getter, setter)
+layout:endSection()
+```
+
+### 4.5 Columnas Responsivas: Patrón Moderno (`row` / `ColumnGroup`) vs Legacy
+**Patrón moderno recomendado (`layout:row` / `Context:createColumnGroup`)**:
+Construye una fila multi-columna autónoma de forma declarativa sin mutar el estado de cursores del `layout` padre:
+```lua
+layout:row({
+    gap = 12,
+    threshold = 480,
+    columns = {
+        {
+            width = 0.5, -- <= 1 proporcional, > 1 píxeles fijos, nil automático
+            populate = function(colLayout, colFrame)
+                colLayout:header("DisplayHeader", "Visualización")
+                colLayout:sliderWithStepper("Scale", "Escala", 0.5, 2.0, 0.1,
+                    function() return db.scale end,
+                    function(v) db.scale = v end
+                )
+            end,
+        },
+        {
+            width = 0.5,
+            populate = function(colLayout, colFrame)
+                colLayout:header("ColorsHeader", "Colores")
+                colLayout:colorPicker("BorderColor", "Color de Borde", false,
+                    function() return unpack(db.borderColor) end,
+                    function(r, g, b, a) db.borderColor = { r, g, b, a } end,
+                    true
+                )
+            end,
+        },
+    },
+})
+```
+**Adaptador legacy (`beginColumn` / `endColumn` / `columnsFinalize`)**:
+Soportado por compatibilidad hacia atrás (internamente delega a `createColumnGroup`):
+```lua
+layout:beginColumn({ width = 0.5, gap = 12 })
+    layout:header("Col1_Header", "Opciones Izquierda")
+layout:endColumn()
+layout:beginColumn({ width = 0.5, gap = 12 })
+    layout:header("Col2_Header", "Opciones Derecha")
+layout:endColumn()
+layout:columnsFinalize(masterContentFrame, 20)
+```
+
+### 4.6 Patrón Canónico Completo de Panel de Opciones
+```lua
+local function BuildSettingsPanel(uiContext, parentFrame, db)
+    local layout = uiContext:createLayoutModel(parentFrame, {
+        scrollable = true,
+        threshold = 500,
+        verticalGap = 12,
+        bottomPadding = 24,
+    })
+
+    layout:header("MainHeader", "Panel de Configuración")
+    layout:paragraph("MainDesc", "Ajusta las opciones y comportamientos principales del addon.")
+    layout:addSpace(8)
+
+    layout:beginSection()
+        layout:header("Section1", "Opciones Generales")
+        layout:toggle("EnableAddon", {
+            getter = function() return db.enabled end,
+            setter = function(val) db.enabled = val end,
+            tooltip = false, -- Opcional en wrappers LayoutBuilder (lo normaliza), obligatorio en Context:createToggle
+        })
+    layout:endSection()
+
+    layout:addSpace(10)
+
+    layout:row({
+        columns = {
+            {
+                width = 0.5,
+                populate = function(colLayout)
+                    colLayout:header("DisplayHeader", "Visualización")
+                    colLayout:sliderWithStepper("Scale", "Escala", 0.5, 2.0, 0.1,
+                        function() return db.scale end,
+                        function(v) db.scale = v end
+                    )
+                end,
+            },
+            {
+                width = 0.5,
+                populate = function(colLayout)
+                    colLayout:header("ColorsHeader", "Colores")
+                    colLayout:colorPicker("BorderColor", "Color de Borde", false,
+                        function() return unpack(db.borderColor) end,
+                        function(r, g, b, a) db.borderColor = { r, g, b, a } end,
+                        true
+                    )
+                end,
+            },
+        },
+    })
+
+    return layout
+end
+```
+
+---
+
+## 5. Catálogo de Constructores de Bajo Nivel y Validaciones Estrictas
+
+| Archivo | Constructor | Parámetros Obligatorios | Valores por Defecto Clave |
 | :--- | :--- | :--- | :--- |
-| `Context:createFrame(opt)` | `Frame` | Ninguno | `width=300`, `height=200`, `clamped=true`, `strata=parent or "MEDIUM"` |
-| `Context:createMainFrame(opt)` | `Frame` | `name` | `width=860`, `height=500`, `movable=true`, `closableWithEscape=true` |
-| `Context:createTabbedInterface(opt)` | `{ sidebar, tabs, panels }` | `parent`, `startY`, `tabs` | `initialIndex=1` |
-| `Context:createTwoColumns(opt)` | `leftColumn, rightColumn` | Ninguno | `parent=UIParent`, `name="TwoColumnLayout"` |
-| `Context:createHeader(opt)` | `FontString, nextY` | `text` | `fontSize=24`, `justifyH="LEFT"`, `spaceBelow=0` |
-| `Context:createLabel(opt)` | `FontString, nextY` | `text` | `fontSize=18`, `justifyH="LEFT"`, `spaceBelow=0` |
-| `Context:createParagraph(opt)` | `FontString, nextY` | `text` | `fontSize=12`, `wordWrap=true`, `justifyH="LEFT"` |
-| `Context:createButton(opt)` | `Button` | Ninguno | `width=60`, `height=25`, `clickTypes={"AnyUp"}` |
-| `Context:createIconButton(opt)` | `Button` | Ninguno | `size=24`, `iconType="close"` (`"plus"`, `"minus"`, etc.) |
-| `Context:createDialogButton(opt)` | `Button` | Ninguno | `variant="neutral"`, `width=90` (auto-expande por texto) |
-| `Context:createToggle(opt)` | `Button` | Ninguno | `width=52`, `height=24`, `padding=2`, `isOn=false` |
-| `Context:createCheckbox(opt)` | `Button` | Ninguno | `checked=false`, `boxSize=25` |
-| `Context:createInputField(opt)` | `Frame` (con `editBox`) | `width`, `height` | `multiLine=false`, `numeric=false`, `showClear=false` |
-| `Context:createSlider(opt)` | `Frame` (con `thumb`) | `orientation`, `length` | `minValue=0`, `maxValue=100`, `step=1`, `thumbShape="diamond"` |
-| `Context:createStepper(opt)` | `Frame` (con input y btns) | `width`, `height` | `minValue=0`, `maxValue=100`, `step=1`, `inputWidth=2/5` |
-| `Context:createColorPicker(opt)` | `Button` (swatch) | Ninguno | `color={1,1,1,1}`, `hasAlpha=true` |
-| `Context:createTooltip(opt)` | `Frame` (`TOOLTIP`) | Ninguno | `minWidth=160`, `maxWidth=280`, `padding=12` |
-| `Context:createDropdown(opt)` | `Button` (trigger) | Ninguno | `options={}`, `width=160`, `height=26`, `maxVisibleItems=6` |
-| `Context:createContextMenu(opt)` | `Frame` (`TOOLTIP`) | Ninguno | `items={}`, `itemHeight=22`, `minWidth=130` |
-| `Context:showToast(opt)` | `Frame` (`TOOLTIP`) | Ninguno | `duration=4`, `maxVisible=4`, `type="info"` |
-| `UX:makeScrollable(container, opt)` | `scrollFrame, child, bar` | `container` | `scrollBarWidth=12`, `step=30`, `thumbShape="capsule"` |
+| `01Frame.lua` | `Context:createFrame(opt)` | `name`, `parent`, `width`, `height`, `savePosition` (si `movable=true`), `saveSize` (si `resizable=true`) | `point="CENTER"`, `relativePoint="CENTER"`, `clamped=true`, `movable=false`, `resizable=false` |
+| `01Frame.lua` | `Context:createMainFrame(opt)` | `name`, `parent`, `width`, `height`, `minWidth`, `minHeight`, `savePosition`, `saveSize` | `anchor="CENTER"`, `strata="HIGH"`, `movable=true`, `resizable=true`, `closableWithEscape=true`, `showCloseButton=true` |
+| `02TabbedInterface.lua` | `Context:createTabbedInterface(opt)` | `name`, `parent`, `startY`, `tabs`, `sidebarWidth` | `initialIndex=1`, `collapsedWidth=40`, `collapseThreshold=550`, `collapsibleSidebar=true`, `autoScroll=true` |
+| `03TwoColumn.lua` | `Context:createTwoColumns(opt)` | `name`, `parent` | `gap=10`, `stackThreshold=480`, `responsive=true` |
+| `03ColumnGroup.lua` | `Context:createColumnGroup(opt)` | `parent` | `name=auto`, `gap=10`, `threshold=480`, `bottomPadding=0`, `rightOffset=0`, `fluidWidth=true` |
+| `04Text.lua` | `Context:createHeader(opt)` | `name`, `parent`, `text` | `fontSize=24`, `justifyH="LEFT"`, `wordWrap=true`, `elasticWidth=true` |
+| `04Text.lua` | `Context:createLabel(opt)` | `name`, `parent`, `text` | `fontSize=18`, `justifyH="LEFT"`, `wordWrap=true`, `elasticWidth=true` |
+| `04Text.lua` | `Context:createParagraph(opt)` | `name`, `parent`, `text` | `fontSize=12`, `justifyH="LEFT"`, `wordWrap=true`, `elasticWidth=true` |
+| `05Button.lua` | `Context:createButton(opt)` | `name`, `parent`, `width`, `height`, `tooltip` (`false`, `string`, `table` o `function`) | `text=""`, `clickTypes={"AnyUp"}` |
+| `05Button.lua` | `Context:createIconButton(opt)` | `name`, `parent`, `iconType`, `size`, `tooltip` (`false`, `string`, `table` o `function`) | `iconColor=styles.colors.white` |
+| `05Button.lua` | `Context:createDialogButton(opt)` | `name`, `parent`, `variant`, `tooltip` (`false`, `string`, `table` o `function`) | `width=90` (auto-expande), `height=26`, `fluidWidth=false` |
+| `05Button.lua` | `Context:createDialogButtonGroup(opt)` | `name`, `parent`, `buttons` | `stackThreshold=400`, `buttonHeight=26`, `buttonWidth=90`, `gap=8` |
+| `06Toggle.lua` | `Context:createToggle(opt)` | `name`, `parent`, `tooltip` (`false`, `string`, `table` o `function`) | `width=52`, `height=24`, `padding=2`, `flexRow=false` |
+| `07Checkbox.lua` | `Context:createCheckbox(opt)` | `name`, `parent`, `tooltip` (`false`, `string`, `table` o `function`) | `checked=false`, `boxSize=25`, `flexRow=false` |
+| `08InputField.lua` | `Context:createInputField(opt)` | `name`, `parent`, `height`, `tooltip` (`false`), `width` (salvo `fluidWidth=true`) | `multiLine=false`, `numeric=false`, `showClear=false` |
+| `09Slider.lua` | `Context:createSlider(opt)` | `name`, `parent`, `orientation`, `minValue`, `maxValue`, `step`, `tooltip` (`false`), `length` (salvo `fluidWidth=true`) | `thickness=16` (H) / `14` (V), `thumbShape="diamond"`, `showFill=false` |
+| `09Slider.lua` | `Context:createSliderWithStepper(opt)` | `name`, `parent`, `minValue`, `maxValue`, `step`, `tooltip` (`false`), `length` (salvo `fluidWidth=true`) | `orientation="HORIZONTAL"`, `stepperGap=4`, `stepperHeight=24` |
+| `10Stepper.lua` | `Context:createStepper(opt)` | `name`, `parent`, `minValue`, `maxValue`, `step`, `tooltip` (`false`), `width` (salvo `fluidWidth=true`) | `height=24`, `decimals=auto` |
+| `11Tooltip.lua` | `Context:createTooltip(opt)` | `name` | `parent=_G.UIParent`, `maxWidth=1/3 pantalla`, `maxHeight=9/10 pantalla`, `padding=12` |
+| `12Dropdown.lua` | `Context:createDropdown(opt)` | `name`, `parent`, `tooltip` (`false`), `width` (salvo `fluidWidth=true`) | `options={}`, `height=26`, `itemHeight=24`, `maxVisibleItems=6` |
+| `13ContextMenu.lua` | `Context:createContextMenu(opt)` | `name`, `parent`, `items` (`#items > 0`) | `minWidth=22`, `itemHeight=22` |
+| `14Toast.lua` | `Context:createToast(opt)` / `showToast` | *Ninguno (todos opcionales)* | `parent=toastManager.frame`, `name=Auto`, `title=resolveCallerAddonTitle()`, `minWidth=50`, `maxWidth=240`, `duration=4` |
+| `15ColorPicker.lua` | `Context:createColorPicker(opt)` | `name`, `parent`, `tooltip` (`false`, `string`, `table` o `function`) | `swatchSize=24`, `color={1,1,1,1}`, `hasAlpha=true`, `flexRow=false` |
+| `16Accordion.lua` | `Context:createAccordion(opt)` | `name`, `parent`, `title` | `expanded=false`, `fluidWidth=true`, `rightOffset=-10`, `headerHeight=28`, `contentPadding=10`, `populate=fn` |
+| `Core/PositionManager.lua` | `PositionManager:initPositionStorage` | `moduleKey` (`string` no vacío) | `defaultTable={point="CENTER", relativePoint="CENTER", x=0, y=0}`, `storageTableName="AscensionUIPositions"` |
+| `UX/Draggable.lua` | `UX:makeMovable(frame, config)` | `frame`, `config.savePosition` (`true` o `false` explícito) | Delega guardado/lectura a `Core/PositionManager.lua` |
+| `UX/Resizable.lua` | `UX:makeResizable(frame, options)` | `frame`, `options.saveSize` (`true` o `false` explícito) | `gripSize=24`, `gripThickness=8`, delega dimensiones a `Core/PositionManager.lua` |
+| `UX/Responsive.lua` | `UX:makeResponsive(containerFrame, opt)` | `containerFrame` | `threshold=480`, `debounce=0.05` |
+| `UX/Scrollable.lua` | `UX:makeScrollable(container, opt)` | `container` | `scrollBarWidth=12`, `step=30`, `thumbShape="capsule"`, `bottomPadding=16` |
 
-### 4.1 Criterio de Diseño: Defaults/Fallbacks vs. Validación Estricta (`error`)
-
-En AscensionFactory existe una distinción intencional y estricta entre qué parámetros admiten un **fallback por defecto** y cuáles **no lo admiten y detienen la ejecución**:
-
-1. **Parámetros con Default / Fallback Silencioso**:
-   - Aplica a opciones puramente cosméticas, de comportamiento secundario o dimensiones estándar donde existe un valor universal lógico:
-     - Dimensiones base: `width = options.width or 60`, `height = options.height or 25`.
-     - Anclajes: `parent = options.parent or _G.UIParent`, `anchor = options.anchor or "CENTER"`.
-     - Colores: `color = options.color or styles.colors.primary`.
-     - Estados: `checked = (options.checked == true)`, `isOn = (options.isOn == true)`.
-
-2. **Parámetros Obligatorios SIN Fallback (`error(...)`)**:
-   - Aplica a datos estructurales esenciales donde inventar un valor por defecto causaría bugs silenciosos, desbordes de memoria o UI rota:
-     - `createMainFrame`: `options.name` es **obligatorio** (necesita identificador global para el registro de ventana y escape).
-     - `createTabbedInterface`: `parent`, `startY` y `tabs` son **obligatorios** (no se puede armar una interfaz con pestañas vacías).
-     - `createHeader`, `createLabel`, `createParagraph`: `options.text` es **obligatorio** (un texto sin contenido carece de sentido semántico).
-     - `createInputField`: `options.height` y (`width` o `fluidWidth`) son **obligatorios** (el EditBox nativo de WoW colapsa a 0px sin dimensiones explícitas).
-     - `createSlider`: `options.orientation` y (`length` o `fluidWidth`) son **obligatorios** (la orientación define la matemática trigonométrica de arrastre del thumb).
-     - `makeScrollable`: `container` es **obligatorio** (no se puede virtualizar un viewport sin un contenedor padre).
-
-3. **Manejo en Código**:
-   - Toda validación estricta se sitúa inmediatamente al inicio del constructor bajo el bloque `2.1 MANDATORY VALIDATION`:
-     ```lua
-     if not options.foo then
-         error("AscensionFactory: create<Widget> requires explicit 'foo'", 2)
-     end
-     ```
-   - Si un parámetro no es obligatorio, **siempre** debe recibir un valor de contingencia tipado con `or <default>`.
-
-*(Para la auditoría exhaustiva de opciones de cada componente, consultar siempre [Components/README.md](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/Components/README.md)).*
+### 5.1 Detalle Crítico en Lua para `options.tooltip` Obligatorio
+En los 11 constructores interactivos directos de `Context` (`05Button`, `createIconButton`, `createDialogButton`, `06Toggle`, `07Checkbox`, `08InputField`, `09Slider`, `createSliderWithStepper`, `10Stepper`, `12Dropdown`, `15ColorPicker`), la propiedad `tooltip` es obligatoria (`assert(options.tooltip ~= nil)`).
+- En Lua 5.1, pasar `tooltip = nil` omite la clave en la tabla. Por ello, al llamar directamente a `Context:create*` sin tooltip, **siempre pasa `tooltip = false`**.
+- Los wrappers de `LayoutBuilder` (`layout:toggle`, `layout:colorPicker`, etc.) sí aceptan omitir `tooltip` o pasar `nil`, porque internamente asignan `if opts.tooltip == nil then opts.tooltip = false end`.
 
 ---
 
-## 5. Estructura y Estilo Canónico de Archivo (Basado en Componentes 01 al 05)
+## 6. Estructura y Estilo Canónico de Archivo
 
-> [!IMPORTANT]
-> ### REGLA DE ORO DE ESCRITURA DE ARCHIVOS EN `Components/`
-> La arquitectura, estructura modular, documentación y estilo de cualquier archivo nuevo o modificado en `Components/` **DEBE ser exactamente idéntica** al patrón canónico fundacional visto en los elementos **01 al 05** (`01Frame.lua`, `02TabbedInterface.lua`, `03TwoColumn.lua`, `04Text.lua`, `05Button.lua`).
-
-Todo archivo en `Components/` debe estructurarse estrictamente bajo esta plantilla:
+Todo archivo en `Components/`, `Core/` o `UX/` debe estructurarse con bloques numerados, cabeceras descriptivas y validaciones explícitas al inicio:
 
 ```lua
 -------------------------------------------------------------------------------
@@ -192,12 +341,6 @@ Todo archivo en `Components/` debe estructurarse estrictamente bajo esta plantil
 
 -------------------------------------------------------------------------------
 -- 1. INITIALIZATION & NAMESPACE REGISTRATION
--- Objective: Import the core AscensionFactory library and Context.
--- This ensures the UI elements can be built upon the existing framework.
--- Variables:
--- MAJOR (string): The namespace identifier for the addon library.
--- lib (table): The resolved library instance.
--- Context (table): The object factory table where creation methods are attached.
 -------------------------------------------------------------------------------
 local MAJOR = "AscensionFactory"
 local lib = LibStub:GetLibrary(MAJOR)
@@ -208,57 +351,27 @@ if not Context then return end
 
 -------------------------------------------------------------------------------
 -- 2. <NOMBRE> FACTORY
--- Objective: <Explicación clara del objetivo del constructor>
--- Variables:
--- options (table): Configuration table including dimensions, styling, and callbacks.
--- ... (documentar cada variable y sub-módulo interno)
 -------------------------------------------------------------------------------
-
---- <Anotaciones LDoc / EmmyLua completas>
---- @param options table|nil Configuration table.
---- @return table <widget> The styled component instance.
 function Context:create<Widget>(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for create<Widget>")
+    assert(options.parent, "options.parent is required for create<Widget>")
+    assert(options.name, "options.name is required for create<Widget>")
+    -- Validaciones adicionales obligatorias según el componente...
+
     local styles = self.styles
     local ux = lib.UX
-    local parent = options.parent or _G.UIParent
+    local parent = options.parent
 
     -- 2.1 BASE ELEMENT ACQUISITION (Pooling obligatorio)
     local widget = self:acquireElement("<Type>", parent, options)
+    _G[options.name] = widget
+    widget.globalName = options.name
 
-    -- 2.2 SIZING & GLOBAL NAMESPACE
-    if options.name then
-        _G[options.name] = widget
-        widget.globalName = options.name
-    end
-
-    -- 2.3 POSITIONING & ANCHORING
-    -- 2.4 STYLING & TEXTURES (Obsidian Cyberpunk de self.styles)
-    -- 2.5 INTERACTION & SCRIPTS (Hoverable, ClickOutside, OnClick, Callbacks)
+    -- 2.2 POSITIONING & ANCHORING
+    -- 2.3 STYLING & TEXTURES (Obsidian Cyberpunk de self.styles)
+    -- 2.4 INTERACTION & SCRIPTS (Hoverable, Draggable, PositionManager, Callbacks)
+    -- 2.5 PUBLIC API METHODS
 
     return widget
 end
 ```
-
----
-
-## 6. Procedimiento para Modificaciones o Adición de Componentes
-
-Cuando el usuario apruebe realizar un cambio o agregar un nuevo widget:
-
-1. **Definir la Firma y Validación**:
-   - Comprobar parámetros requeridos al inicio con `if not options.foo then error(...) end`.
-   - Asignar valores por defecto razonables a los parámetros opcionales.
-2. **Reutilizar Pooling y Componentes Existentes**:
-   - Usar `self:acquireElement` para marcos base.
-   - Si requiere botones, inputs o textos, componer con los constructores existentes de `Context`.
-3. **Aplicar el Sistema de Estilos y Estructura Canónica**:
-   - Respetar la plantilla de secciones y cabeceras de los elementos 01 al 05.
-   - Usar `self.styles.colors` y `self.styles.fonts` (no hardcodear valores de color fijos a menos que sea una sobreescritura deliberada).
-4. **Verificar Compilación y Sintaxis**:
-   ```bash
-   luac -p Core/*.lua UX/*.lua Components/*.lua Integration/*.lua ExampleUI.lua
-   ```
-5. **Actualizar la Documentación Inmediatamente**:
-   - Añadir la tabla de parámetros en [`Components/README.md`](file:///Applications/World%20of%20Warcraft/_retail_/Interface/AddOns/AscensionFactory/Components/README.md).
-   - Documentar `Parámetro`, `Tipo`, `Requisito`, `Valor por Defecto` y `Descripción`.

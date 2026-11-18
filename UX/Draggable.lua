@@ -22,78 +22,70 @@ lib.UX = UX
 
 -------------------------------------------------------------------------------
 -- 2. MOVEMENT LOGIC
--- Objective: Enable frame to be moved by clicking and dragging with left mouse button.
+-- Objective: Enable frame to be moved by clicking and dragging with left mouse button,
+-- and delegate coordinate persistence to Core/PositionManager.lua when configured.
 -- Variables:
 -- frame: Frame UI object made movable.
--- config: Optional persistence configuration table containing coordinates.
+-- config: Mandatory configuration table requiring explicit `savePosition` (boolean).
 -------------------------------------------------------------------------------
 --- Enables a frame to be moved by clicking and dragging with the left mouse button.
+--- Requires `config` table with an explicit boolean `config.savePosition` (`true` or `false`).
+--- @param frame table UI frame object to make movable.
+--- @param config table Configuration table (`savePosition = true|false`, optional `positionTable`, `positionKey`, `storageTableName`).
 function UX:makeMovable(frame, config)
-    if not frame then return end
-    
+    assert(frame, "UX:makeMovable requires a valid 'frame'")
+    assert(type(config) == "table", "UX:makeMovable requires a 'config' table (with explicit boolean 'savePosition')")
+    assert(type(config.savePosition) == "boolean", "UX:makeMovable requires explicit boolean 'config.savePosition' (true or false)")
+
+    local pm = lib.PositionManager
+    local storageTable = nil
+
+    if config.savePosition and pm then
+        storageTable = pm:resolveStorageTable(frame, config)
+        frame.positionStorage = storageTable
+    end
+
     -- Setup Interaction
-    -- SetMovable(true) tells the WoW client that this frame's position can be changed dynamically.
     frame:SetMovable(true)
-    -- EnableMouse(true) allows the frame to intercept mouse clicks and movements instead of passing them through to the world.
     frame:EnableMouse(true)
-    -- SetClampedToScreen(true) prevents the user from dragging the frame entirely off the monitor.
     frame:SetClampedToScreen(true)
-    -- RegisterForDrag("LeftButton") tells the engine to fire drag events when the Left Mouse Button is held down.
     frame:RegisterForDrag("LeftButton")
-    
+
     -- Drag Event Handlers
-    -- SetScript args:
-    -- 1: "OnDragStart" (event script handler name)
-    -- 2: function (callback)
     frame:SetScript("OnDragStart", function(self)
-        -- StartMoving() natively attaches the frame to the mouse cursor.
-        self:StartMoving()
-    end)
-    
-    -- SetScript args:
-    -- 1: "OnDragStop" (event script handler name)
-    -- 2: function (callback)
-    frame:SetScript("OnDragStop", function(self)
-        -- StopMovingOrSizing() detaches the frame from the cursor and drops it in place.
-        self:StopMovingOrSizing()
-        
-        -- Save coordinates if persistent config is provided.
-        if config then
-            -- GetPoint() returns the anchoring details (point, relativeFrame, relativePoint, xOffset, yOffset).
-            local point, _, relPoint, x, y = self:GetPoint()
-            config.point = point
-            config.relativePoint = relPoint
-            config.x = x
-            config.y = y
+        if storageTable and storageTable.locked then return end
+        if self:IsMovable() then
+            self:StartMoving()
         end
     end)
 
-    -- Load saved position if available.
-    -- If the user dragged this window before, restore those exact coordinates upon opening.
-    if config and config.point then
-        frame:ClearAllPoints() -- Remove old positioning.
-        -- SetPoint args:
-        -- 1: config.point (this frame's anchor)
-        -- 2: _G.UIParent (target frame)
-        -- 3: config.relativePoint or config.point (target's anchor)
-        -- 4: config.x or 0 (X offset)
-        -- 5: config.y or 0 (Y offset)
-        frame:SetPoint(config.point, _G.UIParent, config.relativePoint or config.point, config.x or 0, config.y or 0)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+
+        -- Delegate coordinate saving to Core/PositionManager.lua if enabled
+        if config.savePosition and pm and storageTable then
+            pm:updatePositionFromFrame(self, storageTable)
+        end
+    end)
+
+    -- Delegate initial saved position restoration to Core/PositionManager.lua if enabled
+    if config.savePosition and pm and storageTable and storageTable.point then
+        pm:applySavedPosition(frame, storageTable, config.relativeTo or _G.UIParent)
     end
 end
+UX.MakeMovable = UX.makeMovable
+UX.makeDraggable = UX.makeMovable
+UX.MakeDraggable = UX.makeMovable
 
 -------------------------------------------------------------------------------
 -- 3. EXTENSION & EXPANSION NOTES
 -- Objective: Guidelines for persistent position storage, title bar drag handles, and screen clamping.
 --
 -- How to expand:
--- 1. SavedVariables Integration:
---    Pass an entry from your addon's SavedVariables table as `config` (e.g. `MyAddonDB.windowPosition`)
---    to automatically persist and restore the frame's position across game sessions and reloads.
+-- 1. PositionManager Delegation:
+--    Pass `{ savePosition = true, positionKey = "MyWindow" }` (or `positionTable = myTable`)
+--    to persist coordinates via `Core/PositionManager.lua`, or `{ savePosition = false }` for session-only dragging.
 -- 2. Title Bar Handle Restriction:
 --    Restrict dragging to a top header bar rather than the entire frame body by calling `makeMovable`
 --    on a child title bar frame and proxying the `StartMoving()` / `StopMovingOrSizing()` calls to the parent window.
--- 3. Snap-to-Grid / Edge Snapping:
---    Hook `OnDragStop` to calculate proximity to screen edges or adjacent addon windows and snap
---    the frame coordinates to the nearest alignment threshold.
 -------------------------------------------------------------------------------

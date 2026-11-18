@@ -172,6 +172,14 @@ local function resetFontString(pool, fontString)
     fontString:SetWordWrap(false)
     fontString:SetJustifyH("LEFT")
     fontString:SetWidth(0)
+    fontString:SetHeight(0)
+    if fontString._origSetText then
+        fontString.SetText = fontString._origSetText
+        fontString._origSetText = nil
+    end
+    fontString._autoHeightSetTextHooked = nil
+    fontString.updateHeight = nil
+    fontString._parentLayout = nil
     fontString.uiContext = nil
     fontString.elementType = nil
 end

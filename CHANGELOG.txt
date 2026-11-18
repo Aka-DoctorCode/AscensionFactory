@@ -1,5 +1,13 @@
 <h1>@project-version@</h1>
 <ul>
+    <li>Fixed scroll range calculation in UX:makeScrollable, measuring visible descendant elements dynamically and eliminating excessive bottom padding.</li>
+    <li>Added contentPaddingLeft support in UX:makeScrollable and 02TabbedInterface to allow custom horizontal content indentation.</li>
+    <li>Resolved circular anchor dependencies in LayoutModel by enforcing explicit and predictable frame heights on columnar containers.</li>
+    <li>Enhanced tab selection lifecycle to automatically refresh scroll ranges and layouts on panel OnShow.</li>
+</ul>
+<br>
+<h1>V01</h1>
+<ul>
     <li>UI library updates and compatibility with AscensionSuit and dependent addons</li>
     <li>.toc update</li>
 </ul>

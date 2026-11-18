@@ -20,6 +20,27 @@ if not Context then return end
 -- 2. HELPER FUNCTIONS & VARIANT THEMES
 -------------------------------------------------------------------------------
 
+--- Resolves the calling addon name for default toast title.
+local function resolveCallerAddonTitle(context)
+    if context and context.addonName and context.addonName ~= "" then
+        return context.addonName
+    end
+    if debugstack then
+        local stack = debugstack(2, 8, 0) or ""
+        local fallbackFolder
+        for folder in stack:gmatch("Interface[/\\]AddOns[/\\]([^/\\]+)[/\\]") do
+            if folder ~= MAJOR then
+                return folder
+            end
+            fallbackFolder = fallbackFolder or folder
+        end
+        if fallbackFolder then
+            return fallbackFolder
+        end
+    end
+    return MAJOR
+end
+
 --- Resolves semantic border color based on toast type or explicit options.
 local function resolveBorderColor(styles, toastType, explicitColor)
     if explicitColor then
@@ -109,7 +130,57 @@ local function createStatusIcon(self, parent, toastType, customIcon, size, color
 end
 
 -------------------------------------------------------------------------------
--- 3. TOAST COMPONENT FACTORY
+-- 3. CONTEXT TOAST MANAGER & QUEUE SYSTEM
+-- Objective: Manages automated positioning, stacking, and FIFO queueing.
+-------------------------------------------------------------------------------
+local managerCounter = 0
+local toastCounter = 0
+
+--- Initializes or retrieves the toast manager state and container frame for a context instance.
+local function getToastManager(context)
+    if not context.toastManager then
+        managerCounter = managerCounter + 1
+        local mgrName = "AscensionFactoryToastManager" .. managerCounter
+        local container = CreateFrame("Frame", mgrName, _G.UIParent)
+        container:SetAllPoints(_G.UIParent)
+        container:SetFrameStrata("TOOLTIP")
+        container:SetFrameLevel(790)
+
+        local pm = lib.PositionManager
+        local storageKey = (context.addonName and context.addonName ~= "" and (context.addonName .. "_Toasts")) or mgrName
+        local posStorage = nil
+        if pm and pm.initPositionStorage then
+            posStorage = pm:initPositionStorage(storageKey, {
+                point = "TOPRIGHT",
+                relativePoint = "TOPRIGHT",
+                x = -20,
+                y = -80
+            })
+        end
+
+        context.toastManager = {
+            frame = container,
+            positionStorage = posStorage,
+            config = {
+                anchor = (posStorage and posStorage.point) or "TOPRIGHT",
+                relativeTo = container,
+                xOffset = (posStorage and posStorage.x) or -20,
+                yOffset = (posStorage and posStorage.y) or -80,
+                direction = "DOWN", -- "DOWN" or "UP"
+                spacing = 10,
+                maxVisible = 4,
+                defaultDuration = 4,
+            },
+            activeToasts = {},
+            queue = {}
+        }
+        container.positionStorage = posStorage
+    end
+    return context.toastManager
+end
+
+-------------------------------------------------------------------------------
+-- 4. TOAST COMPONENT FACTORY
 -- Objective: Builds an isolated Obsidian Cyberpunk notification toast widget.
 -------------------------------------------------------------------------------
 
@@ -118,18 +189,28 @@ end
 --- @return table toast The configured toast frame.
 function Context:createToast(options)
     options = options or {}
+    assert(type(options) == "table", "options table required for createToast")
     local styles = self.styles
-    local width = options.width or 280
-    local minHeight = options.minHeight or 54
-    local padding = options.padding or 12
+    local mgr = getToastManager(self)
+    local parent = options.parent or mgr.frame
+    local name = options.name
+    if not name or name == "" then
+        toastCounter = toastCounter + 1
+        name = "AscensionFactoryToast" .. toastCounter
+    end
+    local minWidth = options.minWidth or 50
+    local maxWidth = options.maxWidth or options.width or 200
+    local minHeight = options.minHeight or 35
+    local padding = options.padding or 4
     local duration = options.duration or 4
     local toastType = options.type
     local borderColor = resolveBorderColor(styles, toastType, options.borderColor)
 
     -- 3.1 BASE FRAME CONTAINER (Obsidian Cyberpunk styling)
     local toast = self:createFrame({
-        parent = options.parent or _G.UIParent,
-        width = width,
+        name = name,
+        parent = parent,
+        width = maxWidth,
         height = minHeight,
         strata = options.strata or "TOOLTIP",
         frameLevel = options.frameLevel or 800,
@@ -149,15 +230,18 @@ function Context:createToast(options)
     toast.onDismiss = options.onDismiss
 
     -- 3.2 CLOSE BUTTON
+    local closeBtnSize = options.closeButtonSize or 14
     local closeBtn = self:createIconButton({
+        name = name .. "CloseButton",
         parent = toast,
-        size = 18,
+        size = closeBtnSize,
         iconType = "close",
+        tooltip = false,
         point = "TOPRIGHT",
         relativeTo = toast,
         relativePoint = "TOPRIGHT",
-        xOffset = -6,
-        yOffset = -6,
+        xOffset = -4,
+        yOffset = -4,
         onClick = function()
             toast:Dismiss()
         end
@@ -167,18 +251,31 @@ function Context:createToast(options)
     -- 3.3 OPTIONAL STATUS / VECTOR ICON
     local iconOffset = padding
     if toastType or options.icon then
-        local iconSize = options.iconSize or 20
+        local iconSize = options.iconSize or 16
         local iconFrame = createStatusIcon(self, toast, toastType, options.icon, iconSize, borderColor)
-        iconFrame:SetPoint("TOPLEFT", toast, "TOPLEFT", padding, -padding - 2)
+        iconFrame:SetPoint("TOPLEFT", toast, "TOPLEFT", padding, -padding - 1)
         toast.iconFrame = iconFrame
-        iconOffset = padding + iconSize + 8
+        iconOffset = padding + iconSize + 6
     end
 
     -- 3.4 TITLE FONTSTRING
-    local titleText = options.title or "Notification"
-    local title = toast:CreateFontString(nil, "OVERLAY", styles.fonts.label or "GameFontNormalLarge")
+    local titleText
+    if type(options.title) == "function" then
+        titleText = options.title(toast, self)
+    else
+        titleText = options.title
+    end
+    if not titleText or titleText == "" then
+        titleText = resolveCallerAddonTitle(self)
+    end
+    local title = toast:CreateFontString(nil, "OVERLAY", options.titleFont or styles.fonts.text or "GameFontNormal")
+    local defaultFontFile = (GameFontNormal and GameFontNormal.GetFont and select(1, GameFontNormal:GetFont())) or "Fonts\\FRIZQT__.TTF"
+    local tFontFile, tFontSize, tFontFlags = title:GetFont()
+    tFontFile = tFontFile or defaultFontFile
+    tFontSize = (tFontSize and tFontSize > 0 and tFontSize or 12) + 2
+    title:SetFont(tFontFile, options.titleFontSize or tFontSize, tFontFlags or "")
     title:SetPoint("TOPLEFT", toast, "TOPLEFT", iconOffset, -padding)
-    title:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -6, 0)
+    title:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -4, 0)
     title:SetJustifyH("LEFT")
     title:SetWordWrap(false)
     title:SetText(titleText)
@@ -191,31 +288,51 @@ function Context:createToast(options)
 
     -- 3.5 MESSAGE FONTSTRING (Multiline)
     local messageText = options.message or ""
-    local message = toast:CreateFontString(nil, "OVERLAY", styles.fonts.text or "GameFontHighlightSmall")
+    local message = toast:CreateFontString(nil, "OVERLAY", options.messageFont or "GameFontHighlightSmall")
+    local mFontFile, mFontSize, mFontFlags = message:GetFont()
+    mFontFile = mFontFile or defaultFontFile
+    mFontSize = (mFontSize and mFontSize > 0 and mFontSize or 10) + 2
+    message:SetFont(mFontFile, options.messageFontSize or mFontSize, mFontFlags or "")
     message:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-    message:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -6, -16)
+    message:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -4, 0)
     message:SetJustifyH("LEFT")
     message:SetWordWrap(true)
     message:SetText(messageText)
     if options.messageColor then
         message:SetTextColor(unpack(options.messageColor))
     else
-        message:SetTextColor(unpack(styles.colors.surfaceHover or { 0.8, 0.8, 0.8, 1 }))
+        message:SetTextColor(unpack(styles.colors.white or { 0.922, 0.973, 1.000, 1.00 }))
     end
     toast.messageLabel = message
 
-    -- 3.6 DYNAMIC HEIGHT ADJUSTMENT
-    local totalTextHeight = title:GetStringHeight() + 4 + message:GetStringHeight()
-    local calculatedHeight = math.max(minHeight, totalTextHeight + (padding * 2))
+    -- 3.6 DYNAMIC WIDTH & HEIGHT ADJUSTMENT (Adapts to text content)
+    local rightChrome = closeBtnSize + 4 + 4 + padding
+    local rawTextWidth = math.max(title:GetStringWidth() or 0, message:GetStringWidth() or 0)
+    local calculatedWidth = options.width or math.max(minWidth, math.min(maxWidth, iconOffset + rawTextWidth + rightChrome))
+    toast:SetWidth(calculatedWidth)
+
+    -- Force width on fontstrings so GetStringHeight accurately calculates wrapped multiline height
+    local textAvailableWidth = math.max(10, calculatedWidth - iconOffset - rightChrome)
+    message:SetWidth(textAvailableWidth)
+
+    local titleH = title:GetStringHeight() or 0
+    local msgH = (messageText ~= "") and (message:GetStringHeight() or 0) or 0
+    local textSpacing = (messageText ~= "" and titleText ~= "") and 4 or 0
+    local contentHeight = titleH + textSpacing + msgH
+    local iconHeight = (toastType or options.icon) and (options.iconSize or 16) or 0
+    local naturalHeight = math.max(iconHeight, contentHeight) + (padding * 2)
+
     if options.showProgress then
-        calculatedHeight = calculatedHeight + 4
+        naturalHeight = naturalHeight + 4
     end
+
+    local calculatedHeight = options.height or math.max(minHeight, naturalHeight)
     toast:SetHeight(calculatedHeight)
 
     -- 3.7 OPTIONAL PROGRESS BAR (COUNTDOWN)
     if options.showProgress then
         local pBar = CreateFrame("StatusBar", nil, toast)
-        pBar:SetHeight(3)
+        pBar:SetHeight(2)
         pBar:SetPoint("BOTTOMLEFT", toast, "BOTTOMLEFT", 2, 2)
         pBar:SetPoint("BOTTOMRIGHT", toast, "BOTTOMRIGHT", -2, 2)
         
@@ -318,30 +435,8 @@ function Context:createToast(options)
 end
 
 -------------------------------------------------------------------------------
--- 4. CONTEXT TOAST MANAGER & QUEUE SYSTEM
--- Objective: Manages automated positioning, stacking, and FIFO queueing.
+-- 5. QUEUE DISPATCH & RESTACKING LOGIC
 -------------------------------------------------------------------------------
-
---- Initializes or retrieves the toast manager state for a context instance.
-local function getToastManager(context)
-    if not context.toastManager then
-        context.toastManager = {
-            config = {
-                anchor = "TOPRIGHT",
-                relativeTo = _G.UIParent,
-                xOffset = -20,
-                yOffset = -80,
-                direction = "DOWN", -- "DOWN" or "UP"
-                spacing = 10,
-                maxVisible = 4,
-                defaultDuration = 4,
-            },
-            activeToasts = {},
-            queue = {}
-        }
-    end
-    return context.toastManager
-end
 
 --- Re-anchors all currently active toasts according to the stacking configuration.
 local function restackToasts(context)
@@ -378,6 +473,18 @@ function Context:configureToasts(config)
     for k, v in pairs(config) do
         mgr.config[k] = v
     end
+    if mgr.positionStorage and config.savePosition ~= false then
+        if config.anchor then
+            mgr.positionStorage.point = config.anchor
+            mgr.positionStorage.relativePoint = config.anchor
+        end
+        if config.xOffset ~= nil then
+            mgr.positionStorage.x = config.xOffset
+        end
+        if config.yOffset ~= nil then
+            mgr.positionStorage.y = config.yOffset
+        end
+    end
     restackToasts(self)
 end
 
@@ -387,6 +494,9 @@ end
 --- @return table|nil toast The active toast frame, or nil if queued.
 function Context:showToast(options, fromQueue)
     options = options or {}
+    if not options.title then
+        options.title = resolveCallerAddonTitle(self)
+    end
     local mgr = getToastManager(self)
     local cfg = mgr.config
 

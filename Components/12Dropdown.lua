@@ -32,12 +32,19 @@ if not Context then return end
 --- @param options table Configuration parameters.
 --- @return table dropdown The interactive dropdown widget.
 function Context:createDropdown(options)
-    options = options or {}
+    assert(type(options) == "table", "options table required for createDropdown")
+    assert(options.parent, "options.parent is required for createDropdown")
+    assert(options.name, "options.name is required for createDropdown")
+    assert(options.tooltip ~= nil, "options.tooltip is required (pass false, string, table or function)")
     local styles = self.styles
     local ux = lib.UX
-    local parent = options.parent or _G.UIParent
+    local parent = options.parent
 
-    local width = options.width or 160
+    local isFluid = options.fluidWidth or false
+    if not options.width and not isFluid then
+        error("AscensionFactory: createDropdown requires explicit 'width' (or 'fluidWidth = true')", 2)
+    end
+    local width = options.width or (isFluid and 160)
     local height = options.height or 26
     local itemHeight = options.itemHeight or 24
     local maxVisibleItems = options.maxVisibleItems or 6
@@ -50,13 +57,13 @@ function Context:createDropdown(options)
             return {
                 label = tostring(item.label or item.text or item.name or item.value or ""),
                 value = item.value ~= nil and item.value or item.label or item.text,
-                tooltip = item.tooltip
+                tooltip = item.tooltip ~= nil and item.tooltip or false
             }
         else
             return {
                 label = tostring(item),
                 value = item,
-                tooltip = nil
+                tooltip = false
             }
         end
     end
@@ -66,8 +73,6 @@ function Context:createDropdown(options)
         table.insert(normalizedOptions, normalizeItem(item))
     end
 
-    local isFluid = options.fluidWidth or false
-
     -- 2.2 TRIGGER BUTTON (REUSING 05BUTTON.LUA)
     local dropdown = self:createButton({
         parent = parent,
@@ -75,9 +80,9 @@ function Context:createDropdown(options)
         width = width,
         height = height,
         text = "",
-        point = options.point or options.anchorPoint,
+        point = options.point or options.anchorPoint or "TOPLEFT",
         relativeTo = options.relativeTo or parent,
-        relativePoint = options.relativePoint or options.point,
+        relativePoint = options.relativePoint or options.point or "TOPLEFT",
         xOffset = options.xOffset or 0,
         yOffset = options.yOffset or 0,
         tooltip = options.tooltip
@@ -107,15 +112,20 @@ function Context:createDropdown(options)
         triggerLabel:SetPoint("LEFT", dropdown, "LEFT", 10, 0)
         triggerLabel:SetPoint("RIGHT", dropdown, "RIGHT", -26, 0)
         triggerLabel:SetJustifyH("LEFT")
+        triggerLabel:SetWordWrap(true)
+        triggerLabel:SetHeight(0)
+        dropdown._customLabelAnchors = true
     end
 
     -- Arrow Icon Indicator (Right-aligned)
     local arrowIcon
     if self.createIconButton then
         arrowIcon = self:createIconButton({
+            name = options.name .. "ArrowIcon",
             parent = dropdown,
             size = height - 6,
             iconType = "arrowdown",
+            tooltip = false,
             point = "RIGHT",
             relativeTo = dropdown,
             relativePoint = "RIGHT",
@@ -131,6 +141,7 @@ function Context:createDropdown(options)
 
     -- 2.3 POPUP LIST FRAME (REUSING 01FRAME.LUA)
     local listFrame = self:createFrame({
+        name = options.name .. "ListFrame",
         parent = _G.UIParent,
         width = width,
         height = 100,
@@ -187,6 +198,7 @@ function Context:createDropdown(options)
         local currentY = -4
         for i, opt in ipairs(normalizedOptions) do
             local itemBtn = self:createButton({
+                name = (options.name or "AscensionDropdown") .. "Item" .. i,
                 parent = contentChild,
                 width = currentDropWidth - (totalCount > maxVisibleItems and 18 or 10),
                 height = itemHeight,
@@ -250,6 +262,9 @@ function Context:createDropdown(options)
         local lbl = dropdown.label or (dropdown.GetFontString and dropdown:GetFontString())
         if lbl and lbl.SetText then
             lbl:SetText(labelText)
+        end
+        if dropdown._syncButtonDimensions then
+            dropdown:_syncButtonDimensions()
         end
     end
 

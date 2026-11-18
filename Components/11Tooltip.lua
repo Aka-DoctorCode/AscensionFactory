@@ -33,16 +33,29 @@ if not Context then return end
 --- @return table tooltip The configured tooltip frame.
 function Context:createTooltip(options)
     options = options or {}
+    assert(type(options) == "table", "options table required for createTooltip")
+    assert(options.name, "options.name is required for createTooltip")
     local styles = self.styles
-    local maxWidth = options.maxWidth or 280
-    local minWidth = options.minWidth or 160
+    local parent = options.parent or _G.UIParent
     local padding = options.padding or 12
+
+    -- Helper to resolve dynamic maximum limits based on screen size
+    local function getScreenMaxLimits()
+        local screenW = _G.UIParent and _G.UIParent:GetWidth() or 1920
+        local screenH = _G.UIParent and _G.UIParent:GetHeight() or 1080
+        local maxW = options.maxWidth or (screenW / 3)
+        local maxH = options.maxHeight or (screenH * 0.9)
+        return maxW, maxH
+    end
+
+    local initialMaxW = getScreenMaxLimits()
 
     -- 2.1 BASE FRAME (REUSING 01FRAME.LUA)
     local tooltip = self:createFrame({
-        parent = options.parent or _G.UIParent,
-        width = minWidth,
-        height = 60,
+        name = options.name,
+        parent = parent,
+        width = 1,
+        height = 1,
         strata = "TOOLTIP",
         clamped = true,
         showCloseButton = false,
@@ -67,7 +80,7 @@ function Context:createTooltip(options)
     -- 2.3 DESCRIPTION FONTSTRING
     local desc = tooltip:CreateFontString(nil, "OVERLAY", styles.fonts.text or "GameFontHighlight")
     desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-    desc:SetWidth(maxWidth - (padding * 2))
+    desc:SetWidth(math.max(1, initialMaxW - (padding * 2)))
     desc:SetJustifyH("LEFT")
     desc:SetSpacing(3)
     local textColor = styles.colors.white or { 0.92, 0.97, 1.0, 1.0 }
@@ -114,17 +127,21 @@ function Context:createTooltip(options)
         self.desc:SetText(descText)
 
         -- Calculate dimensions dynamically
-        local calculatedWidth = math.max(
-            minWidth,
-            math.min(maxWidth, (self.title:IsShown() and self.title:GetStringWidth() or 0) + (padding * 2)),
-            self.desc:GetStringWidth() + (padding * 2)
-        )
-        self.desc:SetWidth(calculatedWidth - (padding * 2))
+        local maxW, maxH = getScreenMaxLimits()
+        local maxContentWidth = math.max(1, maxW - (padding * 2))
+
+        local titleW = (self.title:IsShown() and self.title:GetStringWidth() or 0)
+        local descW = self.desc:GetStringWidth()
+        local contentW = math.max(titleW, descW)
+
+        local calculatedWidth = math.min(maxW, contentW + (padding * 2))
+        self.desc:SetWidth(math.max(1, calculatedWidth - (padding * 2)))
 
         local totalHeight = padding * 2 + self.desc:GetHeight()
         if self.title:IsShown() then
             totalHeight = totalHeight + self.title:GetHeight() + 6
         end
+        totalHeight = math.min(maxH, totalHeight)
 
         self:SetSize(calculatedWidth, totalHeight)
 
@@ -180,7 +197,10 @@ end
 --- @return table tooltip The shared singleton tooltip frame.
 function Context:getTooltip()
     if not self.sharedTooltip then
-        self.sharedTooltip = self:createTooltip()
+        self.sharedTooltip = self:createTooltip({
+            name = "AscensionFactorySharedTooltip",
+            parent = _G.UIParent
+        })
     end
     return self.sharedTooltip
 end
